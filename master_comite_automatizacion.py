@@ -80,7 +80,7 @@ def load_and_transform_data(file_path):
         
         
         # --- COLUMNA C1 (Inicializada a 0) ---
-        df_master['saldo_capital_total_c1'] = 0 # <-- RENOMBRADA
+        df_master['saldo_capital_total_c1'] = 0 
         
         
         # --- COLUMNAS DE SEGUIMIENTO POR ANTIGÜEDAD (C2 a C25) ---
@@ -104,7 +104,7 @@ def load_and_transform_data(file_path):
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE ---
+# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (MODIFICADA PARA PORCENTAJE) ---
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
@@ -113,27 +113,46 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     if df_filtered.empty:
         return pd.DataFrame()
 
-    # Generar el diccionario de agregación y el listado de nombres de columnas C
+    # 1. Definir columnas a sumar
     agg_dict = {'saldo_capital_total': 'sum',
                 'saldo_capital_total_30150': 'sum',
                 'saldo_capital_total_890': 'sum',
-                'saldo_capital_total_c1': 'sum'} # <-- C1 RENOMBRADA
+                'saldo_capital_total_c1': 'sum'}
     
-    column_names = ['Mes de Apertura', 'Saldo Capital Total', 'Mora 30-150', 'Mora 08-90', 'Mora C1 (Ant=0)'] # <-- Etiqueta de columna
-    
+    c_cols_raw = []
     for n in range(1, 25):
         col_index = n + 1
         col_name = f'saldo_capital_total_c{col_index}'
         agg_dict[col_name] = 'sum'
-        column_names.append(f'Mora C{col_index} (Ant={n})') # Ant=1 para C2, Ant=24 para C25
+        c_cols_raw.append(col_name) # Lista de columnas C_n
 
-    # Agrupar y sumar todas las columnas de saldo (C1, C2 a C25)
+    # 2. Agrupar y sumar todas las columnas
     df_summary = df_filtered.groupby(time_column).agg(agg_dict).reset_index()
     
-    # Asignar los nombres de columna actualizados
+    # 3. Calcular la Tasa de Mora (DIVISIÓN CLAVE)
+    # Usamos np.where para evitar la división por cero si el Saldo Total es 0.
+    
+    # El denominador para todas las columnas C_n es el Saldo Capital Total.
+    denominador = df_summary['saldo_capital_total']
+    
+    # Transformar las columnas C_n a Porcentaje
+    for col in c_cols_raw:
+        df_summary[col] = np.where(
+            denominador != 0,
+            (df_summary[col] / denominador) * 100, # (Cn / Total) * 100
+            0
+        )
+        
+    # 4. Renombrar columnas para la presentación
+    column_names = ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Mora 30-150 (Monto)', 'Mora 08-90 (Monto)', 'Tasa Mora C1 (Ant=0)']
+    
+    for n in range(1, 25):
+        col_index = n + 1
+        column_names.append(f'Tasa Mora C{col_index} (Ant={n})') # Ahora son tasas
+    
     df_summary.columns = column_names
     
-    # Ordenar por fecha de cohorte (más reciente primero)
+    # 5. Ordenar por fecha de cohorte (más reciente primero)
     df_summary = df_summary.sort_values('Mes de Apertura', ascending=False)
     
     return df_summary
@@ -146,7 +165,7 @@ df_master = load_and_transform_data(FILE_PATH)
 # --- 2. INTERFAZ DE STREAMLIT ---
 
 st.set_page_config(layout="wide")
-st.title("📊 Saldo Consolidado por Cohorte de Apertura")
+st.title("📊 Tasa de Mora por Cohorte (Análisis Vintage)")
 
 if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
@@ -208,7 +227,7 @@ if df_filtered.empty:
 
 # --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO CONSOLIDADO ---
 
-st.header("1. Saldo Capital Total y Seguimiento de Mora (C1 a C25)")
+st.header("1. Tasa de Mora por Cohorte y Antigüedad (Vintage)")
 
 try:
     # Calcular la Tabla Consolidada
@@ -218,25 +237,28 @@ try:
         # Formato de la Fecha
         df_saldo_consolidado['Mes de Apertura'] = df_saldo_consolidado['Mes de Apertura'].dt.strftime('%Y-%m')
 
-        # Formato de moneda para la tabla
+        # Formato de moneda para los montos y porcentaje para las tasas
         def format_currency(val):
             return f'{val:,.0f}'
+        def format_percent(val):
+            # Formato a dos decimales, con el símbolo %
+            return f'{val:,.2f}%'
 
-        st.subheader("Suma de Saldos Condicionales por Mes de Apertura (Antigüedad C1 a C25)")
+        st.subheader("Análisis de Mora 30-150 por Antigüedad de la Cohorte")
         
-        # Aplicar formato de moneda a las columnas numéricas
         df_display = df_saldo_consolidado.copy()
-        for col in df_display.columns[1:]:
+        
+        # Aplicar formato: Monto para las primeras 4 columnas, Porcentaje para el resto (C1 a C25)
+        
+        # Montos
+        for col in df_display.columns[1:4]:
             df_display[col] = df_display[col].apply(format_currency)
             
+        # Tasas (C1 en adelante)
+        for col in df_display.columns[4:]:
+            df_display[col] = df_display[col].apply(format_percent)
+            
         st.dataframe(df_display, hide_index=True)
-
-        st.subheader("Verificación de las primeras 50 filas de datos filtrados")
-        # Mostrar algunas columnas clave para la verificación del filtro y las transformaciones
-        verification_cols = ['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'saldo_capital_total_c1', 'saldo_capital_total_c2', 'saldo_capital_total_c25']
-        
-        existing_cols = [col for col in verification_cols if col in df_filtered.columns]
-        st.dataframe(df_filtered[existing_cols].head(50))
 
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")

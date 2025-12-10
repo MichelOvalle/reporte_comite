@@ -80,7 +80,7 @@ def load_and_transform_data(file_path):
         
         
         # --- COLUMNA C1 (Inicializada a 0) ---
-        df_master['saldo_capital_c1'] = 0 
+        df_master['saldo_capital_total_c1'] = 0 # <-- RENOMBRADA
         
         
         # --- COLUMNAS DE SEGUIMIENTO POR ANTIGÜEDAD (C2 a C25) ---
@@ -117,9 +117,9 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     agg_dict = {'saldo_capital_total': 'sum',
                 'saldo_capital_total_30150': 'sum',
                 'saldo_capital_total_890': 'sum',
-                'saldo_capital_c1': 'sum'} # <-- AÑADIDO C1 para la suma
+                'saldo_capital_total_c1': 'sum'} # <-- C1 RENOMBRADA
     
-    column_names = ['Mes de Apertura', 'Saldo Capital Total', 'Mora 30-150', 'Mora 08-90', 'Saldo C1 (Inicial)']
+    column_names = ['Mes de Apertura', 'Saldo Capital Total', 'Mora 30-150', 'Mora 08-90', 'Mora C1 (Ant=0)'] # <-- Etiqueta de columna
     
     for n in range(1, 25):
         col_index = n + 1
@@ -233,7 +233,7 @@ try:
 
         st.subheader("Verificación de las primeras 50 filas de datos filtrados")
         # Mostrar algunas columnas clave para la verificación del filtro y las transformaciones
-        verification_cols = ['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'saldo_capital_c1', 'saldo_capital_total_c2', 'saldo_capital_total_c25']
+        verification_cols = ['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'saldo_capital_total_c1', 'saldo_capital_total_c2', 'saldo_capital_total_c25']
         
         existing_cols = [col for col in verification_cols if col in df_filtered.columns]
         st.dataframe(df_filtered[existing_cols].head(50))

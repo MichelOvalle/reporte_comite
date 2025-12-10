@@ -18,7 +18,6 @@ def load_and_transform_data(file_path):
     try:
         # 1.1 Importación y Dependencias
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
-        df_ejercicio = pd.read_excel(file_path, sheet_name=SHEET_EJERCICIO, usecols='E:F', header=0)
         
         # Mapeo de Buckets (Necesario para Mora_30-150)
         buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
@@ -33,10 +32,7 @@ def load_and_transform_data(file_path):
         # Y: Mora_30-150 (DEPENDENCY FOR VINTAGE)
         df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
         
-        # AP: PR_Origen_Limpio (Para filtros)
-        digital_origenes = ["Promotor Digital", "Chatbot"]
-        df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
-
+        # Solo se cargan las columnas estrictamente necesarias para el Vintage
         return df_master
 
     except Exception as e:
@@ -113,16 +109,9 @@ st.title("📊 Análisis de Vintage (Comité de Automatización)")
 if df_master.empty:
     st.stop()
 
-# --- FILTROS LATERALES (Se mantienen para el control futuro, aunque no filtren el Vintage) ---
-st.sidebar.header("Filtros Informativos")
-st.sidebar.markdown("El gráfico Vintage siempre muestra la UEN 'PR' y las últimas 24 cosechas.")
-st.sidebar.selectbox("UEN (Ejemplo)", df_master['uen'].unique(), index=0)
-st.sidebar.selectbox("Origen (Ejemplo)", df_master['PR_Origen_Limpio'].unique(), index=0)
-
-
 # --- VISUALIZACIÓN PRINCIPAL: VINTAGE ---
 
-st.header("1. Vintage de Mora (Ratio Mora 30-150 / Saldo Total) - Últimas 24 Cohortes PR")
+st.header("Vintage de Mora (Ratio Mora 30-150 / Saldo Total) - Últimas 24 Cohortes PR")
 st.markdown(f"**Fórmula:** $\\frac{{\\sum(\\text{{Saldo}} \\mid \\text{{Mora 30-150}}=\\text{{'Sí'}})}}{{\\sum(\\text{{Saldo Total}})}}$ por cohorte de apertura y antigüedad.")
 
 try:

@@ -77,12 +77,12 @@ def load_and_transform_data(file_path):
         )
         df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
         
-        # --- COLUMNA C2 (MORA 30-150 Y DIFERENCIA DE MESES = 2) - MODIFICADA ---
+        # --- COLUMNA C2 (MORA 30-150 Y DIFERENCIA DE MESES = 2) ---
         
         condition_mora = df_master['Mora_30-150'] == 'Sí'
         condition_dif_mes = df_master['dif_mes'] == 2
         
-        # Aplicamos la nueva lógica: SI(Y(Mora_30-150="Sí", dif_mes=2), saldo_capital_total, 0)
+        # Aplicamos la lógica: SI(Y(Mora_30-150="Sí", dif_mes=2), saldo_capital_total, 0)
         df_master['saldo_capital_total_c2'] = np.where(
             condition_mora & condition_dif_mes,
             df_master['saldo_capital_total'], 
@@ -96,7 +96,7 @@ def load_and_transform_data(file_path):
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (ACTUALIZADA) ---
+# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE ---
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
@@ -141,15 +141,20 @@ if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
     st.stop()
 
-# --- 🛑 FILTRO EXCLUSIVO PARA DESARROLLO: FECHA CIERRE = ENERO 2025 🛑 ---
-# Asumimos que "Enero 2025" se refiere a '2025-01-31'
-TARGET_DATE = pd.to_datetime('2025-01-31') 
-st.warning(f"🚨 **FILTRO DE DESARROLLO ACTIVO:** Solo se muestran datos con `fecha_cierre` igual a **{TARGET_DATE.strftime('%Y-%m-%d')}**. Comenta o elimina esta sección al terminar el desarrollo.")
+# --- 🛑 FILTRO EXCLUSIVO PARA DESARROLLO: MES_BPERTURB=ENE 2025 Y FECHA_CIERRE=FEB 2025 🛑 ---
 
-df_master = df_master[df_master['fecha_cierre'] == TARGET_DATE].copy()
+TARGET_MES_BPERTURB = pd.to_datetime('2025-01-31')
+TARGET_FECHA_CIERRE = pd.to_datetime('2025-02-28') 
+
+st.warning(f"🚨 **FILTRO DE DESARROLLO ACTIVO:** Solo se muestran datos donde: Mes de Apertura = **{TARGET_MES_BPERTURB.strftime('%Y-%m-%d')}** Y Fecha de Cierre = **{TARGET_FECHA_CIERRE.strftime('%Y-%m-%d')}**. Comenta o elimina esta sección al terminar el desarrollo.")
+
+df_master = df_master[
+    (df_master['Mes_BperturB'] == TARGET_MES_BPERTURB) &
+    (df_master['fecha_cierre'] == TARGET_FECHA_CIERRE)
+].copy()
 
 if df_master.empty:
-    st.warning(f"No hay datos en el archivo cargado cuya `fecha_cierre` sea **{TARGET_DATE.strftime('%Y-%m-%d')}**.")
+    st.warning(f"No hay datos que cumplan con la condición de desarrollo (Mes Apertura: {TARGET_MES_BPERTURB.strftime('%Y-%m-%d')} | Fecha Cierre: {TARGET_FECHA_CIERRE.strftime('%Y-%m-%d')}).")
     st.stop()
 # --- 🛑 FIN DEL FILTRO DE DESARROLLO 🛑 ---
 

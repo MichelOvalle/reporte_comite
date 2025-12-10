@@ -13,7 +13,7 @@ SHEET_EJERCICIO = 'ejercicio'
 # --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones necesarias, incluyendo las columnas C2, C3, C4, C5."""
+    """Carga los datos y aplica las transformaciones necesarias, incluyendo las columnas C2 a C25."""
     try:
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
@@ -78,35 +78,22 @@ def load_and_transform_data(file_path):
         )
         df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
         
-        # --- COLUMNAS DE SEGUIMIENTO POR ANTIGÜEDAD (C2, C3, C4, C5) ---
         
-        # C2 (Antigüedad = 1): SI(dif_meses=1, saldo_capital_total_30150, 0)
-        df_master['saldo_capital_total_c2'] = np.where(
-            df_master['dif_mes'] == 1,
-            df_master['saldo_capital_total_30150'], 
-            0
-        )
+        # --- COLUMNAS DE SEGUIMIENTO POR ANTIGÜEDAD (C2 a C25) ---
         
-        # C3 (Antigüedad = 2): SI(dif_meses=2, saldo_capital_total_30150, 0)
-        df_master['saldo_capital_total_c3'] = np.where(
-            df_master['dif_mes'] == 2,
-            df_master['saldo_capital_total_30150'], 
-            0
-        )
-
-        # C4 (Antigüedad = 3): SI(dif_meses=3, saldo_capital_total_30150, 0)
-        df_master['saldo_capital_total_c4'] = np.where(
-            df_master['dif_mes'] == 3,
-            df_master['saldo_capital_total_30150'], 
-            0
-        )
+        # Iteramos desde la antigüedad 1 (C2) hasta la 24 (C25)
+        # Índice n en el código va de 1 a 24, columna C va de 2 a 25.
         
-        # C5 (Antigüedad = 4): SI(dif_meses=4, saldo_capital_total_30150, 0)
-        df_master['saldo_capital_total_c5'] = np.where(
-            df_master['dif_mes'] == 4,
-            df_master['saldo_capital_total_30150'], 
-            0
-        )
+        for n in range(1, 25):
+            col_index = n + 1 # Columna C2, C3, ..., C25
+            col_name = f'saldo_capital_total_c{col_index}'
+            
+            # Lógica: SI(dif_meses = n, saldo_capital_total_30150, 0)
+            df_master[col_name] = np.where(
+                df_master['dif_mes'] == n,
+                df_master['saldo_capital_total_30150'], 
+                0
+            )
         
         return df_master
 
@@ -115,7 +102,7 @@ def load_and_transform_data(file_path):
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE ---
+# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (ACTUALIZADA) ---
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
@@ -124,28 +111,24 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     if df_filtered.empty:
         return pd.DataFrame()
 
-    # Agrupar y sumar todas las columnas de saldo (incluyendo C2, C3, C4, C5)
-    df_summary = df_filtered.groupby(time_column).agg(
-        {'saldo_capital_total': 'sum',
-         'saldo_capital_total_30150': 'sum',
-         'saldo_capital_total_890': 'sum',
-         'saldo_capital_total_c2': 'sum',
-         'saldo_capital_total_c3': 'sum', 
-         'saldo_capital_total_c4': 'sum', 
-         'saldo_capital_total_c5': 'sum'} 
-    ).reset_index()
+    # Generar el diccionario de agregación y el listado de nombres de columnas C
+    agg_dict = {'saldo_capital_total': 'sum',
+                'saldo_capital_total_30150': 'sum',
+                'saldo_capital_total_890': 'sum'}
     
-    # Renombrar columnas para la presentación
-    df_summary.columns = [
-        'Mes de Apertura', 
-        'Saldo Capital Total', 
-        'Mora 30-150', 
-        'Mora 08-90',
-        'Mora C2 (Ant=1)', 
-        'Mora C3 (Ant=2)',
-        'Mora C4 (Ant=3)',
-        'Mora C5 (Ant=4)'
-    ]
+    column_names = ['Mes de Apertura', 'Saldo Capital Total', 'Mora 30-150', 'Mora 08-90']
+    
+    for n in range(1, 25):
+        col_index = n + 1
+        col_name = f'saldo_capital_total_c{col_index}'
+        agg_dict[col_name] = 'sum'
+        column_names.append(f'Mora C{col_index} (Ant={n})') # Ant=1 para C2, Ant=24 para C25
+
+    # Agrupar y sumar todas las columnas de saldo (C2 a C25)
+    df_summary = df_filtered.groupby(time_column).agg(agg_dict).reset_index()
+    
+    # Asignar los nombres de columna actualizados
+    df_summary.columns = column_names
     
     # Ordenar por fecha de cohorte (más reciente primero)
     df_summary = df_summary.sort_values('Mes de Apertura', ascending=False)
@@ -211,7 +194,7 @@ if df_filtered.empty:
 
 # --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO CONSOLIDADO ---
 
-st.header("1. Saldo Capital Total, Mora y Seguimiento C2-C5 por Cohorte")
+st.header("1. Saldo Capital Total y Seguimiento de Mora (C2 a C25)")
 
 try:
     # Calcular la Tabla Consolidada
@@ -225,17 +208,23 @@ try:
         def format_currency(val):
             return f'{val:,.0f}'
 
-        st.subheader("Suma de Saldos Condicionales por Mes de Apertura")
+        st.subheader("Suma de Saldos Condicionales por Mes de Apertura (Antigüedad C2 a C25)")
         
         # Aplicar formato de moneda a las columnas numéricas
         df_display = df_saldo_consolidado.copy()
+        # Nota: Recorrer todas las columnas desde la segunda (índice 1) en adelante.
         for col in df_display.columns[1:]:
             df_display[col] = df_display[col].apply(format_currency)
             
         st.dataframe(df_display, hide_index=True)
 
-        st.subheader("Verificación de las columnas 'dif_mes' y 'C2-C5' (Primeras 50 filas)")
-        st.dataframe(df_filtered[['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'Mora_30-150', 'saldo_capital_total_30150', 'saldo_capital_total_c2', 'saldo_capital_total_c3', 'saldo_capital_total_c4', 'saldo_capital_total_c5']].head(50))
+        st.subheader("Verificación de columnas clave para Antigüedad (Primeras 50 filas)")
+        # Seleccionar las primeras y últimas columnas de C para verificación
+        verification_cols = ['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'saldo_capital_total_30150', 'saldo_capital_total_c2', 'saldo_capital_total_c25']
+        
+        # Asegurarse de que las columnas existan antes de intentar mostrarlas
+        existing_cols = [col for col in verification_cols if col in df_filtered.columns]
+        st.dataframe(df_filtered[existing_cols].head(50))
 
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")

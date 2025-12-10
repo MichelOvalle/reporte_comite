@@ -8,17 +8,16 @@ from dateutil.relativedelta import relativedelta
 # 🚨 ¡IMPORTANTE! Revisa que esta ruta sea correcta en tu computadora
 FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_automatizacion.xlsx'
 SHEET_MASTER = 'master_comite_automatizacion'
-SHEET_EJERCICIO = 'ejercicio'
 
 # --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN MÍNIMA ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones mínimas necesarias para el Vintage y filtros."""
+    """Carga los datos y aplica las transformaciones mínimas necesarias para el Vintage."""
     try:
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
         
-        # Dependencias necesarias para el cálculo del Vintage y filtros
+        # Dependencias necesarias para el cálculo del Vintage
         buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
 
         # Conversiones de tipo
@@ -31,10 +30,6 @@ def load_and_transform_data(file_path):
         # Y: Mora_30-150 (Bandera de mora)
         df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
         
-        # AP: PR_Origen_Limpio (Para filtros)
-        digital_origenes = ["Promotor Digital", "Chatbot"]
-        df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
-
         # Se cargan las columnas estrictamente necesarias
         return df_master
 
@@ -113,28 +108,6 @@ if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
     st.stop()
 
-# --- FILTROS LATERALES ---
-st.sidebar.header("Filtros Interactivos")
-st.sidebar.markdown("**Nota:** El gráfico Vintage no se filtra, ya que usa la lógica fija de UEN='PR' y últimas 24 cosechas.")
-
-# 1. Filtro por UEN
-uen_options = df_master['uen'].unique()
-selected_uen = st.sidebar.multiselect("Selecciona UEN", uen_options, default=uen_options[:min(2, len(uen_options))])
-
-# 2. Filtro por Origen Limpio
-origen_options = df_master['PR_Origen_Limpio'].unique()
-selected_origen = st.sidebar.multiselect("Selecciona Origen", origen_options, default=origen_options)
-
-# Crear el DataFrame filtrado (listo para ser usado en otras visualizaciones si las añades después)
-df_filtered = df_master[
-    (df_master['uen'].isin(selected_uen)) &
-    (df_master['PR_Origen_Limpio'].isin(selected_origen))
-]
-
-if df_filtered.empty:
-    st.warning("No hay datos que coincidan con los filtros seleccionados en los datos base.")
-
-
 # --- VISUALIZACIÓN PRINCIPAL: VINTAGE ---
 
 st.header("1. Vintage de Mora (Ratio Mora 30-150 / Saldo Total) - Últimas 24 Cohortes PR")
@@ -150,7 +123,7 @@ try:
             z=vintage_df_pivot.values,
             x=vintage_df_pivot.columns,
             y=vintage_df_pivot.index,
-            colorscale='OrRd', # Rojo/Naranja para Mora
+            colorscale='OrRd', # Colores para mora, siguiendo la convención de Excel
             text=vintage_df_pivot.values.round(4).astype(str) + '%', 
             hoverinfo='text',
             zmin=0, zmax=vintage_df_pivot.values.max() * 1.1 

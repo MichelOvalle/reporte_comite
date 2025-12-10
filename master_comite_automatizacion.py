@@ -238,4 +238,4 @@ try:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")
 
 except Exception as e:
-    st.error(f"Error al generar la tabla de Saldo Consolidado: {e}")
+    st.error(f"Error al generar la tabla de Saldo Consolidado.: {e}")

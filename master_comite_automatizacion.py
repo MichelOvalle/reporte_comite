@@ -13,7 +13,7 @@ SHEET_EJERCICIO = 'ejercicio'
 # --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (W a BF) ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones de Excel (W a BF)."""
+    """Carga los datos y aplica las transformaciones necesarias, incluyendo saldos condicionales."""
     try:
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
@@ -22,7 +22,7 @@ def load_and_transform_data(file_path):
         buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
         buckets_mora_08_90 = ["008-030", "031-060", "061-090"]
 
-        # Conversiones de tipo (Corrección de fecha para manejar números de serie o strings)
+        # Conversiones de tipo (Corrección de fecha)
         def convert_mes_apertura(value):
             if pd.isna(value) or value in ['nan', 'NaN', '']:
                 return pd.NaT
@@ -45,30 +45,27 @@ def load_and_transform_data(file_path):
         # Bandera: Mora_30-150
         df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
         
-        # Bandera: Mora_08-90 (Necesaria para la nueva columna)
+        # Bandera: Mora_08-90
         df_master['Mora_08-90'] = np.where(df_master['bucket'].isin(buckets_mora_08_90), 'Sí', 'No')
 
         # AP: PR_Origen_Limpio
         digital_origenes = ["Promotor Digital", "Chatbot"]
         df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
 
-        # --- NUEVAS COLUMNAS DE SALDO CONDICIONAL ---
-        
-        # 1. saldo_capital_total_30150
+        # --- COLUMNAS DE SALDO CONDICIONAL ---
         df_master['saldo_capital_total_30150'] = np.where(
             df_master['Mora_30-150'] == 'Sí',
             df_master['saldo_capital_total'],
             0
         )
-        
-        # 2. saldo_capital_total_890
         df_master['saldo_capital_total_890'] = np.where(
             df_master['Mora_08-90'] == 'Sí',
             df_master['saldo_capital_total'],
             0
         )
-
-        # Retornar todas las columnas necesarias (incluyendo las nuevas)
+        # Asegurar que los tipos sean numéricos para la suma
+        df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
+        
         return df_master
 
     except Exception as e:
@@ -76,8 +73,8 @@ def load_and_transform_data(file_path):
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO TOTAL POR COHORTE ---
-def calculate_total_saldo_by_cohort(df, time_column='Mes_BperturB', value_column='saldo_capital_total'):
+# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE ---
+def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
     df_filtered = df.dropna(subset=[time_column]).copy()
@@ -85,11 +82,22 @@ def calculate_total_saldo_by_cohort(df, time_column='Mes_BperturB', value_column
     if df_filtered.empty:
         return pd.DataFrame()
 
-    # Agrupar por la cohorte de apertura y sumar el saldo
-    df_summary = df_filtered.groupby(time_column)[value_column].sum().reset_index()
-    df_summary.columns = ['Mes de Apertura', 'Saldo Capital Total']
+    # Agrupar y sumar las tres columnas
+    df_summary = df_filtered.groupby(time_column).agg(
+        {'saldo_capital_total': 'sum',
+         'saldo_capital_total_30150': 'sum',
+         'saldo_capital_total_890': 'sum'}
+    ).reset_index()
     
-    # Ordenar por fecha de cohorte
+    # Renombrar columnas para la presentación
+    df_summary.columns = [
+        'Mes de Apertura', 
+        'Saldo Capital Total', 
+        'Mora 30-150', 
+        'Mora 08-90'
+    ]
+    
+    # Ordenar por fecha de cohorte (más reciente primero)
     df_summary = df_summary.sort_values('Mes de Apertura', ascending=False)
     
     return df_summary
@@ -102,7 +110,7 @@ df_master = load_and_transform_data(FILE_PATH)
 # --- 2. INTERFAZ DE STREAMLIT ---
 
 st.set_page_config(layout="wide")
-st.title("📊 Desglose de Saldo Capital Total por Cohorte de Apertura")
+st.title("📊 Saldo Consolidado por Cohorte de Apertura")
 
 if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
@@ -135,30 +143,33 @@ if df_filtered.empty:
     st.stop()
 
 
-# --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO TOTAL ---
+# --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO CONSOLIDADO ---
 
-st.header("1. Saldo Capital Total Agregado por Cohorte de Apertura")
+st.header("1. Saldo Capital Total y Saldo en Mora por Cohorte")
 
 try:
-    # Calcular el Saldo Total, agrupado por Mes_BperturB
-    df_saldo_total = calculate_total_saldo_by_cohort(df_filtered) 
+    # Calcular la Tabla Consolidada
+    df_saldo_consolidado = calculate_saldo_consolidado(df_filtered) 
 
-    if not df_saldo_total.empty:
+    if not df_saldo_consolidado.empty:
         # Formato de la Fecha
-        df_saldo_total['Mes de Apertura'] = df_saldo_total['Mes de Apertura'].dt.strftime('%Y-%m')
+        df_saldo_consolidado['Mes de Apertura'] = df_saldo_consolidado['Mes de Apertura'].dt.strftime('%Y-%m')
 
         # Formato de moneda para la tabla
         def format_currency(val):
-            return f'{val:,.2f}'
+            return f'{val:,.0f}'
 
-        # Mostrar Tabla Resumen
-        st.subheader("Suma de Saldo Capital Total por Mes de Apertura")
+        st.subheader("Suma de Saldos Condicionales por Mes de Apertura")
         
-        df_saldo_total['Saldo Capital Total'] = df_saldo_total['Saldo Capital Total'].apply(format_currency)
-        st.dataframe(df_saldo_total, hide_index=True)
+        # Aplicar formato de moneda a las columnas numéricas
+        df_display = df_saldo_consolidado.copy()
+        for col in df_display.columns[1:]:
+            df_display[col] = df_display[col].apply(format_currency)
+            
+        st.dataframe(df_display, hide_index=True)
 
     else:
-        st.warning("No hay datos que cumplan con los criterios de filtro para generar el gráfico.")
+        st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")
 
 except Exception as e:
-    st.error(f"Error al generar la tabla de Saldo Total: {e}")
+    st.error(f"Error al generar la tabla de Saldo Consolidado: {e}")

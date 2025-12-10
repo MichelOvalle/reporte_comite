@@ -13,7 +13,7 @@ SHEET_EJERCICIO = 'ejercicio'
 # --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (W a BF) ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones necesarias, incluyendo saldos condicionales y la columna C1."""
+    """Carga los datos y aplica las transformaciones necesarias, incluyendo saldos condicionales y columnas C1-C4."""
     try:
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
@@ -42,7 +42,7 @@ def load_and_transform_data(file_path):
         # W: Mes_BperturB (FIN.MES)
         df_master['Mes_BperturB'] = df_master['mes_apertura'] + pd.offsets.MonthEnd(0)
         
-        # Bandera: Mora_30-150 (Necesario para C1)
+        # Bandera: Mora_30-150
         df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
         
         # Bandera: Mora_08-90
@@ -65,21 +65,55 @@ def load_and_transform_data(file_path):
         )
         df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
         
-        # --- NUEVA COLUMNA C1 (SALDO MORA INICIAL DE COHORTE MÁS RECIENTE) ---
+        # --- CÁLCULO DE C1, C2, C3, C4 (MORA INICIAL DE COHORTE MÁS RECIENTE) ---
         
         # 1. Encontrar el MAX(Mes_BperturB) global (Cohorte más reciente)
         max_mes_bperturb = df_master['Mes_BperturB'].max()
         
-        # 2. Aplicar la lógica: SI(Y(Mes_BperturB = MAX, Mora_30-150="Sí", Fecha_Cierre = Mes_BperturB), saldo_capital_total, 0)
-        condition = (df_master['Mes_BperturB'] == max_mes_bperturb) & \
-                    (df_master['fecha_cierre'] == df_master['Mes_BperturB']) & \
-                    (df_master['Mora_30-150'] == 'Sí') # <--- NUEVA CONDICIÓN DE MORA
+        # Lógica fija: Saldo si (Cohorte actual == MAX Cohorte) AND (Mora 30-150="Sí") AND (Fecha Cierre == Mes de Observación)
+        is_max_cohorte = (df_master['Mes_BperturB'] == max_mes_bperturb)
+        is_mora = (df_master['Mora_30-150'] == 'Sí')
+
+        # Meses de Observación (FIN.MES(Mes_BperturB, N-1))
+        # N=1 -> Primer mes (0 meses offset)
+        # N=2 -> Segundo mes (1 mes offset)
         
-        df_master['saldo_capital_total_c1'] = np.where(
-            condition,
-            df_master['saldo_capital_total'],
-            0
-        )
+        for n in range(1, 5): # n=1 (C1) a n=4 (C4)
+            offset_months = n - 1
+            col_name = f'saldo_capital_total_c{n}'
+            
+            # Calcular la fecha de observación esperada: FIN.MES(Mes_BperturB, n-1)
+            # Esto se hace comparando la fecha de reporte (fecha_cierre) con el FIN.MES del mes de apertura.
+            
+            # Opción 1: Calcular FIN.MES(Mes_BperturB, offset) y comparar con fecha_cierre.
+            # Esto es más seguro, pero requiere iteración o apply, lo cual es lento.
+            
+            # Opción 2 (Más eficiente): Comparar la antigüedad.
+            # Como la columna Mes_BperturB ya es FIN.MES(mes_apertura, 0), necesitamos una función de meses:
+            def get_aging_months(start, end):
+                if pd.isna(start) or pd.isna(end):
+                    return np.nan
+                # Damos +1 porque en Excel el mes de apertura es el mes 1.
+                return (end.year - start.year) * 12 + (end.month - start.month) + 1
+
+            df_master['Temp_Aging'] = df_master.apply(
+                lambda row: get_aging_months(row['Mes_BperturB'], row['fecha_cierre']), axis=1
+            )
+            
+            # Condición de Antigüedad: Aging debe ser igual a N
+            is_aging_n = (df_master['Temp_Aging'] == n)
+            
+            # Condición final: Y(Cohorte MAX, Mora, Aging == N)
+            condition_cn = is_max_cohorte & is_mora & is_aging_n
+            
+            df_master[col_name] = np.where(
+                condition_cn,
+                df_master['saldo_capital_total'],
+                0
+            )
+        
+        # Eliminar la columna temporal de Aging
+        df_master = df_master.drop(columns=['Temp_Aging'])
         
         return df_master
 
@@ -97,12 +131,15 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     if df_filtered.empty:
         return pd.DataFrame()
 
-    # Agrupar y sumar las cuatro columnas de saldo
+    # Agrupar y sumar las columnas de saldo (incluyendo C1, C2, C3, C4)
     df_summary = df_filtered.groupby(time_column).agg(
         {'saldo_capital_total': 'sum',
          'saldo_capital_total_30150': 'sum',
          'saldo_capital_total_890': 'sum',
-         'saldo_capital_total_c1': 'sum'} 
+         'saldo_capital_total_c1': 'sum',  # <-- NUEVO
+         'saldo_capital_total_c2': 'sum',  # <-- NUEVO
+         'saldo_capital_total_c3': 'sum',  # <-- NUEVO
+         'saldo_capital_total_c4': 'sum'}  # <-- NUEVO
     ).reset_index()
     
     # Renombrar columnas para la presentación
@@ -111,7 +148,10 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         'Saldo Capital Total', 
         'Mora 30-150', 
         'Mora 08-90',
-        'Saldo C1 (Mora Inicial MAX Cohorte)' # <-- NOMBRE ACTUALIZADO
+        'Mora Inicial C1 (Mes 1)', # <-- NUEVO
+        'Mora Inicial C2 (Mes 2)',
+        'Mora Inicial C3 (Mes 3)',
+        'Mora Inicial C4 (Mes 4)'
     ]
     
     # Ordenar por fecha de cohorte (más reciente primero)
@@ -162,7 +202,7 @@ if df_filtered.empty:
 
 # --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO CONSOLIDADO ---
 
-st.header("1. Saldo Capital Total, Mora y Saldo C1 por Cohorte")
+st.header("1. Saldo Capital Total y Seguimiento de Mora Inicial (C1 a C4)")
 
 try:
     # Calcular la Tabla Consolidada

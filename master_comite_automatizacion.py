@@ -10,7 +10,7 @@ FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_auto
 SHEET_MASTER = 'master_comite_automatizacion'
 SHEET_EJERCICIO = 'ejercicio'
 
-# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (W a BF) ---
+# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA ---
 @st.cache_data
 def load_and_transform_data(file_path):
     """Carga los datos y aplica las transformaciones necesarias, incluyendo saldos condicionales."""
@@ -22,7 +22,7 @@ def load_and_transform_data(file_path):
         buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
         buckets_mora_08_90 = ["008-030", "031-060", "061-090"]
 
-        # Conversiones de tipo (Corrección de fecha)
+        # Conversiones de tipo (Corrección de fecha robusta)
         def convert_mes_apertura(value):
             if pd.isna(value) or value in ['nan', 'NaN', '']:
                 return pd.NaT
@@ -32,6 +32,7 @@ def load_and_transform_data(file_path):
                 except:
                     pass
             try:
+                # Intento flexible para strings
                 return pd.to_datetime(str(value).strip(), errors='coerce', infer_datetime_format=True)
             except:
                 return pd.NaT
@@ -53,7 +54,6 @@ def load_and_transform_data(file_path):
         df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
 
         # --- COLUMNAS DE SALDO CONDICIONAL ---
-        # 🚨 Solo necesitamos saldo_capital_total y saldo_capital_total_30150 para esta tabla.
         df_master['saldo_capital_total_30150'] = np.where(
             df_master['Mora_30-150'] == 'Sí',
             df_master['saldo_capital_total'],
@@ -73,8 +73,8 @@ def load_and_transform_data(file_path):
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO MORA 30-150 POR COHORTE ---
-def calculate_saldo_mora_30150(df, time_column='Mes_BperturB'):
+# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (¡CORREGIDA!) ---
+def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
     df_filtered = df.dropna(subset=[time_column]).copy()
@@ -82,15 +82,19 @@ def calculate_saldo_mora_30150(df, time_column='Mes_BperturB'):
     if df_filtered.empty:
         return pd.DataFrame()
 
-    # Agrupar y sumar SOLO la columna de Mora 30-150
+    # Agrupar y sumar las tres columnas (la estructura de tabla que pediste)
     df_summary = df_filtered.groupby(time_column).agg(
-        {'saldo_capital_total_30150': 'sum'}
+        {'saldo_capital_total': 'sum',
+         'saldo_capital_total_30150': 'sum',
+         'saldo_capital_total_890': 'sum'}
     ).reset_index()
     
     # Renombrar columnas para la presentación
     df_summary.columns = [
         'Mes de Apertura', 
-        'Saldo Mora 30-150'
+        'Saldo Capital Total', 
+        'Saldo Mora 30-150', 
+        'Saldo Mora 08-90'
     ]
     
     # Ordenar por fecha de cohorte (más reciente primero)
@@ -106,7 +110,7 @@ df_master = load_and_transform_data(FILE_PATH)
 # --- 2. INTERFAZ DE STREAMLIT ---
 
 st.set_page_config(layout="wide")
-st.title("📊 Saldo en Mora 30-150 por Cohorte de Apertura")
+st.title("📊 Saldo Consolidado por Cohorte de Apertura")
 
 if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
@@ -139,32 +143,33 @@ if df_filtered.empty:
     st.stop()
 
 
-# --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO MORA ---
+# --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO CONSOLIDADO ---
 
-st.header("1. Saldo Capital Total en Mora (30-150 días) por Cohorte")
+st.header("1. Saldo Capital Total, Mora 30-150 y Mora 08-90 por Cohorte")
 
 try:
-    # Calcular la Tabla de Saldo Mora 30-150
-    df_saldo_mora = calculate_saldo_mora_30150(df_filtered) 
+    # Calcular la Tabla Consolidada
+    df_saldo_consolidado = calculate_saldo_consolidado(df_filtered) 
 
-    if not df_saldo_mora.empty:
+    if not df_saldo_consolidado.empty:
         # Formato de la Fecha
-        df_saldo_mora['Mes de Apertura'] = df_saldo_mora['Mes de Apertura'].dt.strftime('%Y-%m')
+        df_saldo_consolidado['Mes de Apertura'] = df_saldo_consolidado['Mes de Apertura'].dt.strftime('%Y-%m')
 
         # Formato de moneda para la tabla
         def format_currency(val):
             return f'{val:,.0f}'
 
-        st.subheader("Suma de Saldo en Mora 30-150 por Mes de Apertura")
+        st.subheader("Suma de Saldos Condicionales por Mes de Apertura")
         
-        # Aplicar formato de moneda a la columna numérica
-        df_display = df_saldo_mora.copy()
-        df_display['Saldo Mora 30-150'] = df_display['Saldo Mora 30-150'].apply(format_currency)
+        # Aplicar formato de moneda a las columnas numéricas
+        df_display = df_saldo_consolidado.copy()
+        for col in df_display.columns[1:]:
+            df_display[col] = df_display[col].apply(format_currency)
             
         st.dataframe(df_display, hide_index=True)
 
     else:
-        st.warning("No hay saldo en mora para la combinación de filtros seleccionada.")
+        st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")
 
 except Exception as e:
-    st.error(f"Error al generar la tabla de Saldo en Mora: {e}")
+    st.error(f"Error al generar la tabla de Saldo Consolidado: {e}")

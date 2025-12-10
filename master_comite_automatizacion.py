@@ -17,11 +17,8 @@ def load_and_transform_data(file_path):
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
         
-        # Dependencias necesarias para la Mora_30-150
-        buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
-
         # Conversiones de tipo
-        # 🚨 CORRECCIÓN APLICADA: Forzar el formato YYYY-MM para mes_apertura para evitar el error '1970-01'
+        # Forzar el formato YYYY-MM para mes_apertura
         df_master['mes_apertura'] = pd.to_datetime(
             df_master['mes_apertura'], 
             format='%Y-%m', 
@@ -31,51 +28,36 @@ def load_and_transform_data(file_path):
 
         # W: Mes_BperturB (FIN.MES)
         df_master['Mes_BperturB'] = df_master['mes_apertura'] + pd.offsets.MonthEnd(0)
-
-        # Y: Mora_30-150 (Bandera de mora)
-        df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
         
         # AP: PR_Origen_Limpio (Para filtros interactivos)
         digital_origenes = ["Promotor Digital", "Chatbot"]
         df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
 
         # Columnas esenciales
-        return df_master[['Mes_BperturB', 'saldo_capital_total', 'Mora_30-150', 'uen', 'PR_Origen_Limpio', 'fecha_cierre']].copy()
+        return df_master[['Mes_BperturB', 'saldo_capital_total', 'uen', 'PR_Origen_Limpio']].copy()
 
     except Exception as e:
         st.error(f"Error al cargar o transformar los datos. Detalle: {e}")
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE TABLA PIVOTE DE MORA ---
-def calculate_pivot_table(df, selected_uens, time_column='Mes_BperturB', value_column='saldo_capital_total', mora_column='Mora_30-150'):
-    
-    # 1. Filtrar por las UEN seleccionadas en el sidebar
-    df_filtered_uen = df[df['uen'].isin(selected_uens)].copy()
+# --- FUNCIÓN DE CÁLCULO DE SALDO TOTAL POR COHORTE ---
+def calculate_total_saldo_by_cohort(df, time_column='Mes_BperturB', value_column='saldo_capital_total'):
     
     # Excluir NaT antes de procesar
-    df_filtered_uen = df_filtered_uen.dropna(subset=[time_column])
+    df_filtered = df.dropna(subset=[time_column]).copy()
     
-    if df_filtered_uen.empty:
+    if df_filtered.empty:
         return pd.DataFrame()
 
-    # 2. Agrupar y sumar
-    df_summary = df_filtered_uen.groupby([time_column, mora_column])[value_column].sum().reset_index()
+    # Agrupar por la cohorte de apertura y sumar el saldo
+    df_summary = df_filtered.groupby(time_column)[value_column].sum().reset_index()
+    df_summary.columns = ['Mes de Apertura', 'Saldo Capital Total']
     
-    # 3. Pivotar la tabla
-    pivot_table = df_summary.pivot_table(
-        index=time_column,
-        columns=mora_column,
-        values=value_column,
-        aggfunc='sum'
-    ).fillna(0)
+    # Ordenar por fecha para la visualización
+    df_summary = df_summary.sort_values('Mes de Apertura')
     
-    # 4. Formato de índice y total
-    pivot_table.index.name = "Mes de Apertura"
-    pivot_table.index = pivot_table.index.strftime('%Y-%m')
-    pivot_table['TOTAL SALDO'] = pivot_table.sum(axis=1)
-
-    return pivot_table.sort_index(ascending=False)
+    return df_summary
 
 
 # --- CARGA PRINCIPAL DEL DATAFRAME ---
@@ -85,7 +67,7 @@ df_master = load_and_transform_data(FILE_PATH)
 # --- 2. INTERFAZ DE STREAMLIT ---
 
 st.set_page_config(layout="wide")
-st.title("📊 Desglose de Saldo por Cohorte de Apertura y Mora")
+st.title("📊 Suma de Saldo Capital Total por Cohorte de Apertura")
 
 if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
@@ -93,7 +75,7 @@ if df_master.empty:
 
 # --- FILTROS LATERALES ---
 st.sidebar.header("Filtros Interactivos")
-st.sidebar.markdown("**Instrucciones:** Selecciona las UENs para filtrar los datos mostrados en la tabla y la gráfica.")
+st.sidebar.markdown("**Instrucciones:** Las selecciones a continuación filtran los datos mostrados en la gráfica.")
 
 # 1. Filtro por UEN
 uen_options = df_master['uen'].unique()
@@ -101,61 +83,59 @@ selected_uens = st.sidebar.multiselect("Selecciona UEN", uen_options, default=ue
 
 # 2. Filtro por Origen Limpio
 origen_options = df_master['PR_Origen_Limpio'].unique()
-st.sidebar.multiselect("Selecciona Origen", origen_options, default=origen_options)
+selected_origen = st.sidebar.multiselect("Selecciona Origen", origen_options, default=origen_options)
 
-if not selected_uens:
-    st.warning("Por favor, selecciona al menos una UEN en el panel lateral.")
+if not selected_uens or not selected_origen:
+    st.warning("Por favor, selecciona al menos una UEN y un Origen en el panel lateral.")
+    st.stop()
+
+# Aplicar filtros al DataFrame maestro
+df_filtered = df_master[
+    (df_master['uen'].isin(selected_uens)) &
+    (df_master['PR_Origen_Limpio'].isin(selected_origen))
+].copy()
+
+if df_filtered.empty:
+    st.warning("No hay datos para la combinación de filtros seleccionada.")
     st.stop()
 
 
-# --- VISUALIZACIÓN PRINCIPAL: TABLA PIVOTE ---
+# --- VISUALIZACIÓN PRINCIPAL: SALDO TOTAL ---
 
-st.header(f"1. Saldo Capital Total por Cohorte de Apertura ({', '.join(selected_uens)})")
-st.markdown("Tabla que muestra la suma de `saldo_capital_total` segmentado por la bandera `Mora 30-150`.")
+st.header("1. Saldo Capital Total por Cohorte de Apertura")
 
 try:
-    # Calcular la Tabla Pivote
-    df_pivot_mora = calculate_pivot_table(df_master.copy(), selected_uens) 
+    # Calcular el Saldo Total, agrupado por Mes_BperturB
+    df_saldo_total = calculate_total_saldo_by_cohort(df_filtered) 
 
-    if not df_pivot_mora.empty:
-        st.subheader("Tabla Pivote de Saldo por Mora")
-        
-        # Formato de la tabla (función de formato)
-        def format_currency(val):
-            return f'{val:,.0f}'
+    if not df_saldo_total.empty:
+        # Formato de la Fecha para el eje X
+        df_saldo_total['Mes de Apertura'] = df_saldo_total['Mes de Apertura'].dt.strftime('%Y-%m')
 
-        # Mostrar la tabla formateada
-        st.dataframe(df_pivot_mora.applymap(format_currency))
-        
-        # Opcional: Gráfico de barras apiladas basado en la tabla pivote
-        st.subheader("Visualización de Saldo en Mora vs. No Mora")
-        
-        # Preparar datos para Plotly
-        df_pivot_chart = df_pivot_mora.reset_index().melt(
-            id_vars='Mes de Apertura',
-            # Usar las columnas de Mora que se crearon en la tabla pivote
-            value_vars=['Sí', 'No'], 
-            var_name='Mora 30-150',
-            value_name='Saldo Capital'
-        )
-        # Excluir saldos cero para la visualización
-        df_pivot_chart = df_pivot_chart[df_pivot_chart['Saldo Capital'] > 0]
-        
-        fig_bar = px.bar(
-            df_pivot_chart,
+        # Crear Gráfico de Barras
+        fig_total = px.bar(
+            df_saldo_total,
             x='Mes de Apertura',
-            y='Saldo Capital',
-            color='Mora 30-150',
-            title='Suma de Saldo Capital (Mora vs. No Mora) por Cohorte de Apertura',
+            y='Saldo Capital Total',
+            title='Suma de Saldo Capital Total por Cohorte de Apertura',
+            labels={'Saldo Capital Total': 'Saldo Total', 'Mes de Apertura': 'Cohorte de Apertura'},
             template='plotly_white',
-            labels={'Saldo Capital': 'Saldo Capital Total'}
+            text='Saldo Capital Total'
         )
-        fig_bar.update_yaxes(tickformat=",0f")
-        st.plotly_chart(fig_bar, use_container_width=True)
+        # Formato de texto y ejes
+        fig_total.update_traces(texttemplate='%{y:,.0f}', textposition='outside')
+        fig_total.update_yaxes(title='Saldo Total', tickformat=",0f", showgrid=True)
+        
+        # Mostrar Gráfico
+        st.plotly_chart(fig_total, use_container_width=True)
 
+        # Mostrar Tabla Resumen
+        st.subheader("Tabla de Saldo Total por Cohorte")
+        df_saldo_total['Saldo Capital Total'] = df_saldo_total['Saldo Capital Total'].apply(lambda x: f'{x:,.2f}')
+        st.dataframe(df_saldo_total)
 
     else:
-        st.warning("No hay datos de saldo para las UENs seleccionadas en las cohortes de apertura (Mes_BperturB).")
+        st.warning("No hay datos que cumplan con los criterios de filtro para generar el gráfico.")
 
 except Exception as e:
-    st.error(f"Error al generar la tabla pivote: {e}")
+    st.error(f"Error al generar el gráfico de Saldo Total: {e}")

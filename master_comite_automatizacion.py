@@ -10,10 +10,10 @@ FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_auto
 SHEET_MASTER = 'master_comite_automatizacion'
 SHEET_EJERCICIO = 'ejercicio'
 
-# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (W a BF) ---
+# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones necesarias, incluyendo saldos condicionales."""
+    """Carga los datos y aplica las transformaciones necesarias, incluyendo saldos condicionales y Antigüedad."""
     try:
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
@@ -63,9 +63,33 @@ def load_and_transform_data(file_path):
             df_master['saldo_capital_total'],
             0
         )
-        # Asegurar que los tipos sean numéricos para la suma
         df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
+
+
+        # --- CÁLCULO DE ANTIGÜEDAD (AGING MONTHS) ---
         
+        # Función para calcular la diferencia de meses
+        def get_aging_months(start, end):
+            # Calcula la diferencia de meses entre fecha_cierre y Mes_BperturB + 1 para que el mes 1 sea el de apertura
+            if pd.isna(start) or pd.isna(end):
+                return np.nan
+            return (end.year - start.year) * 12 + (end.month - start.month) + 1
+
+        df_master['Antiguedad_Meses'] = df_master.apply(
+            lambda row: get_aging_months(row['Mes_BperturB'], row['fecha_cierre']), axis=1
+        )
+        
+        # --- CREACIÓN DE LAS 24 COLUMNAS DE ANTIGÜEDAD ---
+        
+        for i in range(1, 25):
+            col_name = f'Antigüedad_{i}'
+            # Si Antiguedad_Meses es igual al número de la columna (i), asigna el Saldo, sino 0
+            df_master[col_name] = np.where(
+                df_master['Antiguedad_Meses'] == i,
+                df_master['saldo_capital_total'],
+                0
+            )
+
         return df_master
 
     except Exception as e:
@@ -74,6 +98,7 @@ def load_and_transform_data(file_path):
 
 
 # --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE ---
+# (Se mantiene para la interfaz, pero se actualizará para incluir las nuevas columnas si es necesario)
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
@@ -82,14 +107,14 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     if df_filtered.empty:
         return pd.DataFrame()
 
-    # Agrupar y sumar las tres columnas
+    # Agrupar y sumar las tres columnas de saldo
     df_summary = df_filtered.groupby(time_column).agg(
         {'saldo_capital_total': 'sum',
          'saldo_capital_total_30150': 'sum',
          'saldo_capital_total_890': 'sum'}
     ).reset_index()
     
-    # Renombrar columnas para la presentación
+    # Renombrar columnas
     df_summary.columns = [
         'Mes de Apertura', 
         'Saldo Capital Total', 
@@ -98,9 +123,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     ]
     
     # Ordenar por fecha de cohorte (más reciente primero)
-    df_summary = df_summary.sort_values('Mes de Apertura', ascending=False)
-    
-    return df_summary
+    return df_summary.sort_values('Mes de Apertura', ascending=False)
 
 
 # --- CARGA PRINCIPAL DEL DATAFRAME ---
@@ -110,7 +133,7 @@ df_master = load_and_transform_data(FILE_PATH)
 # --- 2. INTERFAZ DE STREAMLIT ---
 
 st.set_page_config(layout="wide")
-st.title("📊 Saldo Consolidado por Cohorte de Apertura")
+st.title("📊 Análisis de Antigüedad y Saldo por Cohorte")
 
 if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
@@ -145,7 +168,7 @@ if df_filtered.empty:
 
 # --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO CONSOLIDADO ---
 
-st.header("1. Saldo Capital Total y Saldo en Mora por Cohorte")
+st.header("1. Saldo Consolidado por Cohorte")
 
 try:
     # Calcular la Tabla Consolidada
@@ -159,7 +182,7 @@ try:
         def format_currency(val):
             return f'{val:,.0f}'
 
-        st.subheader("Suma de Saldos Condicionales por Mes de Apertura")
+        st.subheader("Suma de Saldos y Mora por Mes de Apertura")
         
         # Aplicar formato de moneda a las columnas numéricas
         df_display = df_saldo_consolidado.copy()

@@ -82,8 +82,6 @@ def load_and_transform_data(file_path):
         # --- COLUMNAS DE SEGUIMIENTO POR ANTIGÜEDAD (C2 a C25) ---
         
         # Iteramos desde la antigüedad 1 (C2) hasta la 24 (C25)
-        # Índice n en el código va de 1 a 24, columna C va de 2 a 25.
-        
         for n in range(1, 25):
             col_index = n + 1 # Columna C2, C3, ..., C25
             col_name = f'saldo_capital_total_c{col_index}'
@@ -102,7 +100,7 @@ def load_and_transform_data(file_path):
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (ACTUALIZADA) ---
+# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE ---
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
@@ -149,21 +147,6 @@ if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
     st.stop()
 
-# --- 🛑 FILTRO EXCLUSIVO PARA DESARROLLO: MES_BPERTURB=ENE 2025 🛑 ---
-
-TARGET_MES_BPERTURB = pd.to_datetime('2025-01-31')
-
-st.warning(f"🚨 **FILTRO DE DESARROLLO ACTIVO:** Solo se muestran datos donde: Mes de Apertura = **{TARGET_MES_BPERTURB.strftime('%Y-%m-%d')}** (Enero 2025). Comenta o elimina esta sección al terminar el desarrollo.")
-
-df_master = df_master[
-    (df_master['Mes_BperturB'] == TARGET_MES_BPERTURB)
-].copy()
-
-if df_master.empty:
-    st.warning(f"No hay datos que cumplan con la condición de desarrollo (Mes Apertura: {TARGET_MES_BPERTURB.strftime('%Y-%m-%d')}).")
-    st.stop()
-# --- 🛑 FIN DEL FILTRO DE DESARROLLO 🛑 ---
-
 
 # --- FILTROS LATERALES ---
 st.sidebar.header("Filtros Interactivos")
@@ -188,7 +171,7 @@ df_filtered = df_master[
 ].copy()
 
 if df_filtered.empty:
-    st.warning("No hay datos para la combinación de filtros seleccionada después de aplicar el filtro de desarrollo y los filtros laterales.")
+    st.warning("No hay datos para la combinación de filtros seleccionada.")
     st.stop()
 
 
@@ -218,11 +201,10 @@ try:
             
         st.dataframe(df_display, hide_index=True)
 
-        st.subheader("Verificación de columnas clave para Antigüedad (Primeras 50 filas)")
-        # Seleccionar las primeras y últimas columnas de C para verificación
-        verification_cols = ['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'saldo_capital_total_30150', 'saldo_capital_total_c2', 'saldo_capital_total_c25']
+        st.subheader("Verificación de las primeras 50 filas de datos filtrados")
+        # Mostrar algunas columnas clave para la verificación del filtro y las transformaciones
+        verification_cols = ['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'Mora_30-150', 'saldo_capital_total', 'saldo_capital_total_c2', 'saldo_capital_total_c25']
         
-        # Asegurarse de que las columnas existan antes de intentar mostrarlas
         existing_cols = [col for col in verification_cols if col in df_filtered.columns]
         st.dataframe(df_filtered[existing_cols].head(50))
 

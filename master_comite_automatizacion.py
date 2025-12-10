@@ -10,7 +10,7 @@ FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_auto
 SHEET_MASTER = 'master_comite_automatizacion'
 SHEET_EJERCICIO = 'ejercicio'
 
-# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (W a BF) ---
+# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA ---
 @st.cache_data
 def load_and_transform_data(file_path):
     """Carga los datos y aplica las transformaciones necesarias, incluyendo la columna dif_mes y saldo_capital_total_c2."""
@@ -58,7 +58,6 @@ def load_and_transform_data(file_path):
         def get_month_diff(date1, date2):
             if pd.isna(date1) or pd.isna(date2):
                 return np.nan
-            # Resta date2 (fecha_cierre) de date1 (Mes_BperturB)
             return (date1.year - date2.year) * 12 + (date1.month - date2.month)
 
         df_master['dif_mes'] = df_master.apply(
@@ -78,13 +77,13 @@ def load_and_transform_data(file_path):
         )
         df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
         
-        # --- NUEVA COLUMNA C2 (MORA 30-150 CON DIFERENCIA DE MESES = 2) ---
+        # --- COLUMNA C2 (MORA 30-150 CON DIFERENCIA DE MESES = 2) ---
         
         condition_c2 = df_master['dif_mes'] == 2
         
         df_master['saldo_capital_total_c2'] = np.where(
             condition_c2,
-            df_master['saldo_capital_total_30150'], # Usamos el saldo ya filtrado por Mora 30-150
+            df_master['saldo_capital_total_30150'], 
             0
         )
         
@@ -109,7 +108,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         {'saldo_capital_total': 'sum',
          'saldo_capital_total_30150': 'sum',
          'saldo_capital_total_890': 'sum',
-         'saldo_capital_total_c2': 'sum'} # <-- AÑADIDO C2
+         'saldo_capital_total_c2': 'sum'} 
     ).reset_index()
     
     # Renombrar columnas para la presentación
@@ -118,7 +117,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         'Saldo Capital Total', 
         'Mora 30-150', 
         'Mora 08-90',
-        'Mora C2 (Dif Meses = 2)' # <-- NUEVO NOMBRE
+        'Mora C2 (Dif Meses = 2)' 
     ]
     
     # Ordenar por fecha de cohorte (más reciente primero)
@@ -139,6 +138,19 @@ st.title("📊 Saldo Consolidado por Cohorte de Apertura")
 if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
     st.stop()
+
+# --- 🛑 FILTRO EXCLUSIVO PARA DESARROLLO: FECHA CIERRE = ENERO 2025 🛑 ---
+# Asumimos que "Enero 2025" se refiere a '2025-01-31'
+TARGET_DATE = pd.to_datetime('2025-01-31') 
+st.warning(f"🚨 **FILTRO DE DESARROLLO ACTIVO:** Solo se muestran datos con `fecha_cierre` igual a **{TARGET_DATE.strftime('%Y-%m-%d')}**. Comenta o elimina esta sección al terminar el desarrollo.")
+
+df_master = df_master[df_master['fecha_cierre'] == TARGET_DATE].copy()
+
+if df_master.empty:
+    st.warning(f"No hay datos en el archivo cargado cuya `fecha_cierre` sea **{TARGET_DATE.strftime('%Y-%m-%d')}**.")
+    st.stop()
+# --- 🛑 FIN DEL FILTRO DE DESARROLLO 🛑 ---
+
 
 # --- FILTROS LATERALES ---
 st.sidebar.header("Filtros Interactivos")
@@ -163,7 +175,7 @@ df_filtered = df_master[
 ].copy()
 
 if df_filtered.empty:
-    st.warning("No hay datos para la combinación de filtros seleccionada.")
+    st.warning("No hay datos para la combinación de filtros seleccionada después de aplicar el filtro de desarrollo y los filtros laterales.")
     st.stop()
 
 
@@ -192,7 +204,7 @@ try:
             
         st.dataframe(df_display, hide_index=True)
 
-        st.subheader("Verificación de la columna 'dif_mes' (Solo las primeras 50 filas)")
+        st.subheader("Verificación de las columnas 'dif_mes' y 'saldo_capital_total_c2' (Primeras 50 filas)")
         st.dataframe(df_filtered[['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'saldo_capital_total_30150', 'saldo_capital_total_c2']].head(50))
 
     else:

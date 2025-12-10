@@ -77,13 +77,15 @@ def load_and_transform_data(file_path):
         )
         df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
         
-        # --- COLUMNA C2 (MORA 30-150 CON DIFERENCIA DE MESES = 2) ---
+        # --- COLUMNA C2 (MORA 30-150 Y DIFERENCIA DE MESES = 2) - MODIFICADA ---
         
-        condition_c2 = df_master['dif_mes'] == 2
+        condition_mora = df_master['Mora_30-150'] == 'Sí'
+        condition_dif_mes = df_master['dif_mes'] == 2
         
+        # Aplicamos la nueva lógica: SI(Y(Mora_30-150="Sí", dif_mes=2), saldo_capital_total, 0)
         df_master['saldo_capital_total_c2'] = np.where(
-            condition_c2,
-            df_master['saldo_capital_total_30150'], 
+            condition_mora & condition_dif_mes,
+            df_master['saldo_capital_total'], 
             0
         )
         
@@ -204,8 +206,8 @@ try:
             
         st.dataframe(df_display, hide_index=True)
 
-        st.subheader("Verificación de las columnas 'dif_mes' y 'saldo_capital_total_c2' (Primeras 50 filas)")
-        st.dataframe(df_filtered[['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'saldo_capital_total_30150', 'saldo_capital_total_c2']].head(50))
+        st.subheader("Verificación de las columnas 'dif_mes', 'Mora_30-150' y 'saldo_capital_total_c2' (Primeras 50 filas)")
+        st.dataframe(df_filtered[['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'Mora_30-150', 'saldo_capital_total', 'saldo_capital_total_c2']].head(50))
 
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")

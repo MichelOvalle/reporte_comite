@@ -13,7 +13,7 @@ SHEET_EJERCICIO = 'ejercicio'
 # --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones necesarias, incluyendo la columna dif_mes y saldo_capital_total_c2."""
+    """Carga los datos y aplica las transformaciones necesarias, incluyendo las columnas C2, C3, C4, C5."""
     try:
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
@@ -78,14 +78,32 @@ def load_and_transform_data(file_path):
         )
         df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
         
-        # --- COLUMNA C2 (MORA 30-150 EN EL MES 1 DE ANTIGÜEDAD) - MODIFICADA ---
+        # --- COLUMNAS DE SEGUIMIENTO POR ANTIGÜEDAD (C2, C3, C4, C5) ---
         
-        # La Mora 30-150 ya está filtrada en saldo_capital_total_30150
-        condition_dif_mes = df_master['dif_mes'] == 1 # <--- CAMBIO DE 2 A 1
-        
-        # Aplicamos la lógica: SI(dif_mes=1, saldo_capital_total_30150, 0)
+        # C2 (Antigüedad = 1): SI(dif_meses=1, saldo_capital_total_30150, 0)
         df_master['saldo_capital_total_c2'] = np.where(
-            condition_dif_mes,
+            df_master['dif_mes'] == 1,
+            df_master['saldo_capital_total_30150'], 
+            0
+        )
+        
+        # C3 (Antigüedad = 2): SI(dif_meses=2, saldo_capital_total_30150, 0)
+        df_master['saldo_capital_total_c3'] = np.where(
+            df_master['dif_mes'] == 2,
+            df_master['saldo_capital_total_30150'], 
+            0
+        )
+
+        # C4 (Antigüedad = 3): SI(dif_meses=3, saldo_capital_total_30150, 0)
+        df_master['saldo_capital_total_c4'] = np.where(
+            df_master['dif_mes'] == 3,
+            df_master['saldo_capital_total_30150'], 
+            0
+        )
+        
+        # C5 (Antigüedad = 4): SI(dif_meses=4, saldo_capital_total_30150, 0)
+        df_master['saldo_capital_total_c5'] = np.where(
+            df_master['dif_mes'] == 4,
             df_master['saldo_capital_total_30150'], 
             0
         )
@@ -97,7 +115,7 @@ def load_and_transform_data(file_path):
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (ACTUALIZADA) ---
+# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE ---
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
@@ -106,12 +124,15 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     if df_filtered.empty:
         return pd.DataFrame()
 
-    # Agrupar y sumar las columnas de Saldo Total, las dos moras y la nueva C2
+    # Agrupar y sumar todas las columnas de saldo (incluyendo C2, C3, C4, C5)
     df_summary = df_filtered.groupby(time_column).agg(
         {'saldo_capital_total': 'sum',
          'saldo_capital_total_30150': 'sum',
          'saldo_capital_total_890': 'sum',
-         'saldo_capital_total_c2': 'sum'} 
+         'saldo_capital_total_c2': 'sum',
+         'saldo_capital_total_c3': 'sum', 
+         'saldo_capital_total_c4': 'sum', 
+         'saldo_capital_total_c5': 'sum'} 
     ).reset_index()
     
     # Renombrar columnas para la presentación
@@ -120,7 +141,10 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         'Saldo Capital Total', 
         'Mora 30-150', 
         'Mora 08-90',
-        'Mora C2 (Antigüedad = 1)' # Etiqueta actualizada
+        'Mora C2 (Ant=1)', 
+        'Mora C3 (Ant=2)',
+        'Mora C4 (Ant=3)',
+        'Mora C5 (Ant=4)'
     ]
     
     # Ordenar por fecha de cohorte (más reciente primero)
@@ -142,20 +166,18 @@ if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
     st.stop()
 
-# --- 🛑 FILTRO EXCLUSIVO PARA DESARROLLO: MES_BPERTURB=ENE 2025 Y FECHA_CIERRE=FEB 2025 🛑 ---
+# --- 🛑 FILTRO EXCLUSIVO PARA DESARROLLO: MES_BPERTURB=ENE 2025 🛑 ---
 
 TARGET_MES_BPERTURB = pd.to_datetime('2025-01-31')
-TARGET_FECHA_CIERRE = pd.to_datetime('2025-02-28') 
 
-st.warning(f"🚨 **FILTRO DE DESARROLLO ACTIVO:** Solo se muestran datos donde: Mes de Apertura = **{TARGET_MES_BPERTURB.strftime('%Y-%m-%d')}** Y Fecha de Cierre = **{TARGET_FECHA_CIERRE.strftime('%Y-%m-%d')}**. Comenta o elimina esta sección al terminar el desarrollo.")
+st.warning(f"🚨 **FILTRO DE DESARROLLO ACTIVO:** Solo se muestran datos donde: Mes de Apertura = **{TARGET_MES_BPERTURB.strftime('%Y-%m-%d')}** (Enero 2025). Comenta o elimina esta sección al terminar el desarrollo.")
 
 df_master = df_master[
-    (df_master['Mes_BperturB'] == TARGET_MES_BPERTURB) &
-    (df_master['fecha_cierre'] == TARGET_FECHA_CIERRE)
+    (df_master['Mes_BperturB'] == TARGET_MES_BPERTURB)
 ].copy()
 
 if df_master.empty:
-    st.warning(f"No hay datos que cumplan con la condición de desarrollo (Mes Apertura: {TARGET_MES_BPERTURB.strftime('%Y-%m-%d')} | Fecha Cierre: {TARGET_FECHA_CIERRE.strftime('%Y-%m-%d')}).")
+    st.warning(f"No hay datos que cumplan con la condición de desarrollo (Mes Apertura: {TARGET_MES_BPERTURB.strftime('%Y-%m-%d')}).")
     st.stop()
 # --- 🛑 FIN DEL FILTRO DE DESARROLLO 🛑 ---
 
@@ -189,7 +211,7 @@ if df_filtered.empty:
 
 # --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO CONSOLIDADO ---
 
-st.header("1. Saldo Capital Total, Mora y Seguimiento C2 por Cohorte")
+st.header("1. Saldo Capital Total, Mora y Seguimiento C2-C5 por Cohorte")
 
 try:
     # Calcular la Tabla Consolidada
@@ -212,8 +234,8 @@ try:
             
         st.dataframe(df_display, hide_index=True)
 
-        st.subheader("Verificación de las columnas 'dif_mes', 'Mora_30-150' y 'saldo_capital_total_c2' (Primeras 50 filas)")
-        st.dataframe(df_filtered[['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'Mora_30-150', 'saldo_capital_total_30150', 'saldo_capital_total_c2']].head(50))
+        st.subheader("Verificación de las columnas 'dif_mes' y 'C2-C5' (Primeras 50 filas)")
+        st.dataframe(df_filtered[['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'Mora_30-150', 'saldo_capital_total_30150', 'saldo_capital_total_c2', 'saldo_capital_total_c3', 'saldo_capital_total_c4', 'saldo_capital_total_c5']].head(50))
 
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")

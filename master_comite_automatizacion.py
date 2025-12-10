@@ -13,7 +13,7 @@ SHEET_EJERCICIO = 'ejercicio'
 # --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones necesarias, incluyendo la columna dif_mes (corregida) y saldo_capital_total_c2."""
+    """Carga los datos y aplica las transformaciones necesarias, incluyendo la columna dif_mes y saldo_capital_total_c2."""
     try:
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
@@ -52,7 +52,7 @@ def load_and_transform_data(file_path):
         digital_origenes = ["Promotor Digital", "Chatbot"]
         df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
 
-        # --- CÁLCULO DE DIFERENCIA DE MESES (CORREGIDO: fecha_cierre - Mes_BperturB) ---
+        # --- CÁLCULO DE DIFERENCIA DE MESES (Antigüedad) ---
         
         # Función para calcular la diferencia de meses (fecha_cierre - Mes_BperturB)
         def get_month_diff(date1, date2):
@@ -78,15 +78,15 @@ def load_and_transform_data(file_path):
         )
         df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
         
-        # --- COLUMNA C2 (MORA 30-150 Y DIFERENCIA DE MESES = 2) ---
+        # --- COLUMNA C2 (MORA 30-150 EN EL MES 1 DE ANTIGÜEDAD) - MODIFICADA ---
         
-        condition_mora = df_master['Mora_30-150'] == 'Sí'
-        condition_dif_mes = df_master['dif_mes'] == 2
+        # La Mora 30-150 ya está filtrada en saldo_capital_total_30150
+        condition_dif_mes = df_master['dif_mes'] == 1 # <--- CAMBIO DE 2 A 1
         
-        # Aplicamos la lógica: SI(Y(Mora_30-150="Sí", dif_mes=2), saldo_capital_total, 0)
+        # Aplicamos la lógica: SI(dif_mes=1, saldo_capital_total_30150, 0)
         df_master['saldo_capital_total_c2'] = np.where(
-            condition_mora & condition_dif_mes,
-            df_master['saldo_capital_total'], 
+            condition_dif_mes,
+            df_master['saldo_capital_total_30150'], 
             0
         )
         
@@ -120,7 +120,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         'Saldo Capital Total', 
         'Mora 30-150', 
         'Mora 08-90',
-        'Mora C2 (Antigüedad = 2)' # Etiqueta actualizada para reflejar Antigüedad
+        'Mora C2 (Antigüedad = 1)' # Etiqueta actualizada
     ]
     
     # Ordenar por fecha de cohorte (más reciente primero)
@@ -213,7 +213,7 @@ try:
         st.dataframe(df_display, hide_index=True)
 
         st.subheader("Verificación de las columnas 'dif_mes', 'Mora_30-150' y 'saldo_capital_total_c2' (Primeras 50 filas)")
-        st.dataframe(df_filtered[['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'Mora_30-150', 'saldo_capital_total', 'saldo_capital_total_c2']].head(50))
+        st.dataframe(df_filtered[['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'Mora_30-150', 'saldo_capital_total_30150', 'saldo_capital_total_c2']].head(50))
 
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")

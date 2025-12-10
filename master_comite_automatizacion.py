@@ -42,7 +42,7 @@ def load_and_transform_data(file_path):
         # W: Mes_BperturB (FIN.MES)
         df_master['Mes_BperturB'] = df_master['mes_apertura'] + pd.offsets.MonthEnd(0)
         
-        # Bandera: Mora_30-150
+        # Bandera: Mora_30-150 (Necesario para C1)
         df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
         
         # Bandera: Mora_08-90
@@ -65,14 +65,15 @@ def load_and_transform_data(file_path):
         )
         df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
         
-        # --- NUEVA COLUMNA C1 ---
+        # --- NUEVA COLUMNA C1 (SALDO MORA INICIAL DE COHORTE MÁS RECIENTE) ---
         
         # 1. Encontrar el MAX(Mes_BperturB) global (Cohorte más reciente)
         max_mes_bperturb = df_master['Mes_BperturB'].max()
         
-        # 2. Aplicar la lógica: SI(Y(Mes_BperturB = MAX, fecha_cierre = Mes_BperturB), saldo_capital_total, 0)
+        # 2. Aplicar la lógica: SI(Y(Mes_BperturB = MAX, Mora_30-150="Sí", Fecha_Cierre = Mes_BperturB), saldo_capital_total, 0)
         condition = (df_master['Mes_BperturB'] == max_mes_bperturb) & \
-                    (df_master['fecha_cierre'] == df_master['Mes_BperturB'])
+                    (df_master['fecha_cierre'] == df_master['Mes_BperturB']) & \
+                    (df_master['Mora_30-150'] == 'Sí') # <--- NUEVA CONDICIÓN DE MORA
         
         df_master['saldo_capital_total_c1'] = np.where(
             condition,
@@ -101,7 +102,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         {'saldo_capital_total': 'sum',
          'saldo_capital_total_30150': 'sum',
          'saldo_capital_total_890': 'sum',
-         'saldo_capital_total_c1': 'sum'} # <-- AÑADIDO C1
+         'saldo_capital_total_c1': 'sum'} 
     ).reset_index()
     
     # Renombrar columnas para la presentación
@@ -110,7 +111,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         'Saldo Capital Total', 
         'Mora 30-150', 
         'Mora 08-90',
-        'Saldo C1 (Máx Cohorte)' # <-- NUEVO NOMBRE
+        'Saldo C1 (Mora Inicial MAX Cohorte)' # <-- NOMBRE ACTUALIZADO
     ]
     
     # Ordenar por fecha de cohorte (más reciente primero)

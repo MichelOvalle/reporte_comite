@@ -13,7 +13,7 @@ SHEET_EJERCICIO = 'ejercicio'
 # --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones necesarias, incluyendo las columnas C1 a C25."""
+    """Carga los datos y aplica las transformaciones necesarias, incluyendo las columnas C1 a C25 y CAPITAL_C1 a CAPITAL_C25."""
     try:
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
@@ -79,21 +79,37 @@ def load_and_transform_data(file_path):
         df_master['saldo_capital_total'] = pd.to_numeric(df_master['saldo_capital_total'], errors='coerce').fillna(0)
         
         
-        # --- COLUMNA C1 (Inicializada a 0) ---
-        df_master['saldo_capital_total_c1'] = 0
+        # --- COLUMNAS DE SEGUIMIENTO DE MORA (C1 a C25) ---
         
+        # C1 (Inicializada a 0)
+        df_master['saldo_capital_total_c1'] = 0 
         
-        # --- COLUMNAS DE SEGUIMIENTO POR ANTIGÜEDAD (C2 a C25) ---
-        
-        # Iteramos desde la antigüedad 1 (C2) hasta la 24 (C25)
+        # Iteramos C2 a C25 (Antigüedad 1 a 24)
         for n in range(1, 25):
-            col_index = n + 1 # Columna C2, C3, ..., C25
+            col_index = n + 1 
             col_name = f'saldo_capital_total_c{col_index}'
             
             # Lógica: SI(dif_meses = n, saldo_capital_total_30150, 0)
             df_master[col_name] = np.where(
                 df_master['dif_mes'] == n,
                 df_master['saldo_capital_total_30150'], 
+                0
+            )
+
+        # --- NUEVAS COLUMNAS DE CAPITAL (CAPITAL_C1 a CAPITAL_C25) ---
+        
+        # CAPITAL_C1 (Inicializada a 0)
+        df_master['capital_c1'] = 0
+
+        # Iteramos CAPITAL_C2 a CAPITAL_C25 (Antigüedad 1 a 24)
+        for n in range(1, 25):
+            col_index = n + 1 
+            col_name = f'capital_c{col_index}'
+            
+            # Lógica: SI(dif_meses = n, saldo_capital_total, 0)
+            df_master[col_name] = np.where(
+                df_master['dif_mes'] == n,
+                df_master['saldo_capital_total'], 
                 0
             )
         
@@ -116,26 +132,33 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     # 1. Definir columnas a sumar
     agg_dict = {'saldo_capital_total': 'sum',
                 'saldo_capital_total_30150': 'sum',
-                'saldo_capital_total_890': 'sum',
-                'saldo_capital_total_c1': 'sum'} 
+                'saldo_capital_total_890': 'sum'}
     
-    c_cols_raw = []
-    for n in range(1, 25):
-        col_index = n + 1
-        col_name = f'saldo_capital_total_c{col_index}'
-        agg_dict[col_name] = 'sum'
-        c_cols_raw.append(col_name)
+    # Agregar todas las columnas C (Mora) y CAPITAL (Total) al diccionario de agregación
+    column_names = ['Mes de Apertura', 'Saldo Capital Total', 'Mora 30-150', 'Mora 08-90']
+    
+    # Columnas Mora (C1 a C25) y Capital (CAPITAL_C1 a CAPITAL_C25)
+    for n in range(1, 26):
+        if n == 1:
+            mora_col = 'saldo_capital_total_c1'
+            capital_col = 'capital_c1'
+        else:
+            mora_col = f'saldo_capital_total_c{n}'
+            capital_col = f'capital_c{n}'
+            
+        # Agregar a agg_dict
+        agg_dict[mora_col] = 'sum'
+        agg_dict[capital_col] = 'sum'
+        
+        # Agregar nombres descriptivos a la lista de nombres de columnas
+        column_names.append(f'Mora C{n} (Ant={n-1})')
+        column_names.append(f'Capital C{n} (Ant={n-1})')
 
-    # 2. Agrupar y sumar todas las columnas (RETORNA MONTOS ABSOLUTOS)
+
+    # 2. Agrupar y sumar todas las columnas
     df_summary = df_filtered.groupby(time_column).agg(agg_dict).reset_index()
     
-    # 3. Renombrar columnas para la presentación
-    column_names = ['Mes de Apertura', 'Saldo Capital Total', 'Mora 30-150', 'Mora 08-90', 'Mora C1 (Ant=0)']
-    
-    for n in range(1, 25):
-        col_index = n + 1
-        column_names.append(f'Mora C{col_index} (Ant={n})')
-    
+    # 3. Asignar los nombres de columna actualizados
     df_summary.columns = column_names
     
     # 4. Ordenar por fecha de cohorte (más reciente primero)
@@ -213,7 +236,7 @@ if df_filtered.empty:
 
 # --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO CONSOLIDADO ---
 
-st.header("1. Saldo Capital Total y Seguimiento de Mora (Montos Absolutos)")
+st.header("1. Saldo Consolidado por Cohorte (Montos Absolutos)")
 
 try:
     # Calcular la Tabla Consolidada
@@ -228,21 +251,20 @@ try:
             # Formato de miles y sin decimales (asumiendo que son montos grandes)
             return f'{val:,.0f}'
 
-        st.subheader("Suma de Saldos y Seguimiento por Antigüedad (C1 a C25)")
+        st.subheader("Suma de Saldos y Seguimiento por Antigüedad (Mora y Capital C1 a C25)")
         
         # Aplicar formato de moneda a todas las columnas numéricas
         df_display = df_saldo_consolidado.copy()
         
         # Recorrer todas las columnas desde la segunda (índice 1) en adelante.
         for col in df_display.columns[1:]:
-            # Convertimos a numérico de nuevo (por si Pandas lo interpretó como object) y aplicamos formato
             df_display[col] = pd.to_numeric(df_display[col], errors='coerce').fillna(0).apply(format_currency)
             
         st.dataframe(df_display, hide_index=True)
 
-        st.subheader("Verificación de las primeras 50 filas de datos filtrados")
-        # Mostrar algunas columnas clave para la verificación
-        verification_cols = ['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'Mora_30-150', 'saldo_capital_total', 'saldo_capital_total_c1', 'saldo_capital_total_c2', 'saldo_capital_total_c25']
+        st.subheader("Verificación de columnas clave para Capital (Primeras 50 filas)")
+        # Mostrar algunas columnas clave para la verificación del filtro y las transformaciones
+        verification_cols = ['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'saldo_capital_total', 'capital_c1', 'capital_c2', 'capital_c25']
         
         existing_cols = [col for col in verification_cols if col in df_filtered.columns]
         st.dataframe(df_filtered[existing_cols].head(50))

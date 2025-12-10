@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px
 from dateutil.relativedelta import relativedelta
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
@@ -25,12 +26,18 @@ def load_and_transform_data(file_path):
             "061-090": 4, "091-120": 5, "121-150": 6, "151-999": 7
         }
 
-        # Conversiones de tipo (Incluye la corrección crítica para el formato de mes_apertura)
+        # 🚨 CORRECCIÓN AVANZADA: Manejar formatos mixtos y NaNs en mes_apertura
+        # Convertir a string y limpiar espacios para manejar datos mixtos o sucios
+        df_master['mes_apertura'] = df_master['mes_apertura'].astype(str).str.strip()
+        
+        # Intentar la conversión, permitiendo que pandas infiera el formato (más flexible)
         df_master['mes_apertura'] = pd.to_datetime(
             df_master['mes_apertura'], 
-            format='%Y-%m', 
-            errors='coerce' # Convierte valores no válidos a NaT
+            errors='coerce', 
+            infer_datetime_format=True
         )
+        
+        # Conversión de fecha de cierre
         df_master['fecha_cierre'] = pd.to_datetime(df_master['fecha_cierre'], errors='coerce')
 
         # --- CREACIÓN DE COLUMNAS (W a BF) ---
@@ -192,7 +199,7 @@ def load_and_transform_data(file_path):
 df_master = load_and_transform_data(FILE_PATH)
 
 
-# --- 2. INTERFAZ DE STREAMLIT (A PARTIR DE AQUÍ PUEDES AGREGAR TU VISUALIZACIÓN) ---
+# --- 2. INTERFAZ DE STREAMLIT ---
 
 st.set_page_config(layout="wide")
 st.title("🛠️ Interfaz de Visualización de Datos Transformados")
@@ -203,7 +210,7 @@ if df_master.empty:
 
 # --- FILTROS LATERALES ---
 st.sidebar.header("Filtros Interactivos")
-st.sidebar.markdown("**Instrucciones:** Utiliza estos filtros para segmentar el DataFrame `df_filtered` para futuras visualizaciones.")
+st.sidebar.markdown("**Instrucciones:** Las selecciones a continuación filtran los datos mostrados en la gráfica.")
 
 # 1. Filtro por UEN
 uen_options = df_master['uen'].unique()
@@ -228,7 +235,7 @@ if df_filtered.empty:
     st.stop()
 
 
-# --- ESPACIO PARA VISUALIZACIONES FUTURAS ---
+# --- ESPACIO PARA VISUALIZACIONES (AQUÍ ES DONDE CONTINUAREMOS) ---
 
 st.header("DataFrame 'df_filtered' Listo para Visualización")
 st.markdown(f"El DataFrame filtrado contiene **{len(df_filtered)}** filas con todas las columnas calculadas.")

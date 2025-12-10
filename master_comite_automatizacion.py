@@ -13,7 +13,7 @@ SHEET_EJERCICIO = 'ejercicio'
 # --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones necesarias, incluyendo la columna dif_mes y saldo_capital_total_c2."""
+    """Carga los datos y aplica las transformaciones necesarias, incluyendo la columna dif_mes (corregida) y saldo_capital_total_c2."""
     try:
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
@@ -52,13 +52,14 @@ def load_and_transform_data(file_path):
         digital_origenes = ["Promotor Digital", "Chatbot"]
         df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
 
-        # --- CÁLCULO DE DIFERENCIA DE MESES ---
+        # --- CÁLCULO DE DIFERENCIA DE MESES (CORREGIDO: fecha_cierre - Mes_BperturB) ---
         
-        # Función para calcular la diferencia de meses (Mes_BperturB - fecha_cierre)
+        # Función para calcular la diferencia de meses (fecha_cierre - Mes_BperturB)
         def get_month_diff(date1, date2):
             if pd.isna(date1) or pd.isna(date2):
                 return np.nan
-            return (date1.year - date2.year) * 12 + (date1.month - date2.month)
+            # Resta date1 (Mes_BperturB) de date2 (fecha_cierre)
+            return (date2.year - date1.year) * 12 + (date2.month - date1.month)
 
         df_master['dif_mes'] = df_master.apply(
             lambda row: get_month_diff(row['Mes_BperturB'], row['fecha_cierre']), axis=1
@@ -96,7 +97,7 @@ def load_and_transform_data(file_path):
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE ---
+# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (ACTUALIZADA) ---
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
@@ -119,7 +120,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         'Saldo Capital Total', 
         'Mora 30-150', 
         'Mora 08-90',
-        'Mora C2 (Dif Meses = 2)' 
+        'Mora C2 (Antigüedad = 2)' # Etiqueta actualizada para reflejar Antigüedad
     ]
     
     # Ordenar por fecha de cohorte (más reciente primero)

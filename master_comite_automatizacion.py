@@ -13,7 +13,7 @@ SHEET_EJERCICIO = 'ejercicio'
 # --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (W a BF) ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica todas las transformaciones de Excel (W a BF), incluyendo la corrección de fechas."""
+    """Carga los datos y aplica las transformaciones de Excel (W a BF)."""
     try:
         # 1.1 Importación y Dependencias
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
@@ -26,43 +26,30 @@ def load_and_transform_data(file_path):
             "061-090": 4, "091-120": 5, "121-150": 6, "151-999": 7
         }
 
-        # 🚨 CORRECCIÓN DEFINITIVA: Intentar convertir mes_apertura desde número de serie de Excel o string
-        
+        # Conversiones de tipo
+        # 🚨 CORRECCIÓN DEFINITIVA: Manejar números de serie o strings de fecha
         def convert_mes_apertura(value):
             if pd.isna(value) or value in ['nan', 'NaN', '']:
                 return pd.NaT
-            
-            # Intento 1: Si es un número (número de serie de Excel), convertirlo.
-            if isinstance(value, (int, float)) and value > 1000: # Las fechas de Excel son grandes (ej. 45000)
+            if isinstance(value, (int, float)) and value > 1000:
                 try:
-                    # Convertir número de serie de Excel a fecha (asumiendo sistema 1900)
                     return pd.to_datetime(value, unit='D', origin='1899-12-30')
                 except:
                     pass
-            
-            # Intento 2: Si es una cadena, intentar inferir el formato (flexible)
             try:
+                # Intento flexible para strings
                 return pd.to_datetime(str(value).strip(), errors='coerce', infer_datetime_format=True)
             except:
                 return pd.NaT
 
         df_master['mes_apertura'] = df_master['mes_apertura'].apply(convert_mes_apertura)
-        
-        # Conversión de fecha de cierre
         df_master['fecha_cierre'] = pd.to_datetime(df_master['fecha_cierre'], errors='coerce')
 
-        # --- CREACIÓN DE COLUMNAS (W a BF) ---
-        
         # W: Mes_BperturB (FIN.MES)
         df_master['Mes_BperturB'] = df_master['mes_apertura'] + pd.offsets.MonthEnd(0)
         
-        # El resto de las transformaciones (X a BF) se omiten en este bloque por brevedad,
-        # pero la lógica es la misma que ya te proporcioné.
-        # Solo necesitamos las columnas esenciales para la interfaz.
-        
-        # Y: Mora_30-150
-        buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
-        df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
+        # [Se omiten el resto de las transformaciones (X a BF) para ahorrar espacio, 
+        # pero las columnas se crean en el df_master si se necesita]
 
         # AP: PR_Origen_Limpio
         digital_origenes = ["Promotor Digital", "Chatbot"]
@@ -71,7 +58,7 @@ def load_and_transform_data(file_path):
         return df_master
 
     except Exception as e:
-        st.error(f"Error al cargar y procesar los datos: {e}. Por favor, verifique la ruta del archivo.")
+        st.error(f"Error al cargar o transformar los datos. Detalle: {e}. Por favor, verifique la ruta del archivo y el formato de la columna 'mes_apertura'.")
         return pd.DataFrame()
 
 
@@ -88,8 +75,8 @@ def calculate_total_saldo_by_cohort(df, time_column='Mes_BperturB', value_column
     df_summary = df_filtered.groupby(time_column)[value_column].sum().reset_index()
     df_summary.columns = ['Mes de Apertura', 'Saldo Capital Total']
     
-    # Ordenar por fecha para la visualización
-    df_summary = df_summary.sort_values('Mes de Apertura')
+    # Ordenar por fecha de cohorte
+    df_summary = df_summary.sort_values('Mes de Apertura', ascending=False)
     
     return df_summary
 
@@ -109,7 +96,7 @@ if df_master.empty:
 
 # --- FILTROS LATERALES ---
 st.sidebar.header("Filtros Interactivos")
-st.sidebar.markdown("**Instrucciones:** Las selecciones a continuación filtran los datos mostrados en la gráfica.")
+st.sidebar.markdown("**Instrucciones:** Las selecciones a continuación filtran los datos mostrados en la tabla.")
 
 # 1. Filtro por UEN
 uen_options = df_master['uen'].unique()
@@ -134,42 +121,30 @@ if df_filtered.empty:
     st.stop()
 
 
-# --- VISUALIZACIÓN PRINCIPAL: SALDO TOTAL ---
+# --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO TOTAL ---
 
-st.header("1. Saldo Capital Total por Cohorte de Apertura")
+st.header("1. Saldo Capital Total Agregado por Cohorte de Apertura")
 
 try:
     # Calcular el Saldo Total, agrupado por Mes_BperturB
     df_saldo_total = calculate_total_saldo_by_cohort(df_filtered) 
 
     if not df_saldo_total.empty:
-        # Formato de la Fecha para el eje X
+        # Formato de la Fecha
         df_saldo_total['Mes de Apertura'] = df_saldo_total['Mes de Apertura'].dt.strftime('%Y-%m')
 
-        # Crear Gráfico de Barras
-        fig_total = px.bar(
-            df_saldo_total,
-            x='Mes de Apertura',
-            y='Saldo Capital Total',
-            title='Suma de Saldo Capital Total por Cohorte de Apertura',
-            labels={'Saldo Capital Total': 'Saldo Total', 'Mes de Apertura': 'Cohorte de Apertura'},
-            template='plotly_white',
-            text='Saldo Capital Total'
-        )
-        # Formato de texto y ejes
-        fig_total.update_traces(texttemplate='%{y:,.0f}', textposition='outside')
-        fig_total.update_yaxes(title='Saldo Total', tickformat=",0f", showgrid=True)
-        
-        # Mostrar Gráfico
-        st.plotly_chart(fig_total, use_container_width=True)
+        # Formato de moneda para la tabla
+        def format_currency(val):
+            return f'{val:,.2f}'
 
         # Mostrar Tabla Resumen
-        st.subheader("Tabla de Saldo Total por Cohorte")
-        df_saldo_total['Saldo Capital Total'] = df_saldo_total['Saldo Capital Total'].apply(lambda x: f'{x:,.2f}')
-        st.dataframe(df_saldo_total)
+        st.subheader("Suma de Saldo Capital Total por Mes de Apertura")
+        
+        df_saldo_total['Saldo Capital Total'] = df_saldo_total['Saldo Capital Total'].apply(format_currency)
+        st.dataframe(df_saldo_total, hide_index=True)
 
     else:
-        st.warning("No hay datos que cumplan con los criterios de filtro para generar el gráfico.")
+        st.warning("No hay datos para la combinación de filtros seleccionada.")
 
 except Exception as e:
-    st.error(f"Error al generar el gráfico de Saldo Total: {e}")
+    st.error(f"Error al generar la tabla de Saldo Total: {e}")

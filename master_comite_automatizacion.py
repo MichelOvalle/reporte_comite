@@ -148,6 +148,32 @@ if df_master.empty:
     st.stop()
 
 
+# --- 🛑 FILTRO PARA VISUALIZACIÓN: ÚLTIMAS 24 COHORTES DE APERTURA 🛑 ---
+if not df_master['Mes_BperturB'].empty:
+    # 1. Obtener las fechas únicas
+    unique_cohort_dates = df_master['Mes_BperturB'].dropna().unique()
+    
+    # 2. Convertir a datetime y ordenar
+    sorted_cohort_dates = pd.to_datetime(unique_cohort_dates).sort_values(ascending=False)
+    
+    # 3. Seleccionar las últimas 24 (máximo)
+    last_24_cohorts = sorted_cohort_dates.iloc[:24]
+    
+    # 4. Aplicar el filtro
+    df_master = df_master[df_master['Mes_BperturB'].isin(last_24_cohorts)].copy()
+    
+    # Informar al usuario del filtro
+    if not last_24_cohorts.empty:
+        max_date = last_24_cohorts.max().strftime('%Y-%m')
+        min_date = last_24_cohorts.min().strftime('%Y-%m')
+        st.info(f"Filtro aplicado: Mostrando solo las últimas **{len(last_24_cohorts)} cohortes** de apertura, desde **{min_date}** hasta **{max_date}**.")
+    
+if df_master.empty:
+    st.warning("El DataFrame maestro está vacío después de aplicar el filtro de las últimas 24 cohortes. Verifique que haya suficientes datos de cohorte.")
+    st.stop()
+# --- 🛑 FIN DEL FILTRO DE LAS 24 COHORTES 🛑 ---
+
+
 # --- FILTROS LATERALES ---
 st.sidebar.header("Filtros Interactivos")
 st.sidebar.markdown("**Instrucciones:** Las selecciones a continuación filtran los datos mostrados en la tabla.")

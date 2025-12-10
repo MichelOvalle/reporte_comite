@@ -148,13 +148,14 @@ if df_master.empty:
     st.stop()
 
 
-# --- 🛑 FILTRO PARA VISUALIZACIÓN: ÚLTIMAS 24 COHORTES DE APERTURA 🛑 ---
+# --- 🛑 FILTRO PARA VISUALIZACIÓN: ÚLTIMAS 24 COHORTES DE APERTURA (CORREGIDO) 🛑 ---
 if not df_master['Mes_BperturB'].empty:
     # 1. Obtener las fechas únicas
     unique_cohort_dates = df_master['Mes_BperturB'].dropna().unique()
     
-    # 2. Convertir a datetime y ordenar
-    sorted_cohort_dates = pd.to_datetime(unique_cohort_dates).sort_values(ascending=False)
+    # 2. Convertir a datetime y ordenar (SOLUCIÓN AL ERROR)
+    # Convertimos a Series para usar .sort_values()
+    sorted_cohort_dates = pd.Series(pd.to_datetime(unique_cohort_dates)).sort_values(ascending=False)
     
     # 3. Seleccionar las últimas 24 (máximo)
     last_24_cohorts = sorted_cohort_dates.iloc[:24]
@@ -221,13 +222,12 @@ try:
         
         # Aplicar formato de moneda a las columnas numéricas
         df_display = df_saldo_consolidado.copy()
-        # Nota: Recorrer todas las columnas desde la segunda (índice 1) en adelante.
         for col in df_display.columns[1:]:
             df_display[col] = df_display[col].apply(format_currency)
             
         st.dataframe(df_display, hide_index=True)
 
-        st.subheader("Verificación de las primeras 50 filas de datos filtrados")
+        st.subheader("Verificación de columnas clave para Antigüedad (Primeras 50 filas)")
         # Mostrar algunas columnas clave para la verificación del filtro y las transformaciones
         verification_cols = ['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'Mora_30-150', 'saldo_capital_total', 'saldo_capital_total_c2', 'saldo_capital_total_c25']
         

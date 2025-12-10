@@ -51,9 +51,7 @@ def load_and_transform_data(file_path):
         digital_origenes = ["Promotor Digital", "Chatbot"]
         df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
 
-        # El resto de las transformaciones (X, Z, AA, AD-BF) se omiten aquí por espacio, 
-        # pero asegurar que Mora_30-150, Mes_BperturB, y Saldo Capital estén correctos es suficiente para el Vintage.
-        # Si planeas usar otras columnas en futuros filtros o tablas, asegúrate de incluirlas.
+        # El resto de las transformaciones... (Omitidas por brevedad, pero las dependencias están resueltas)
 
         return df_master
 
@@ -71,15 +69,27 @@ def calculate_vintage_ratio(df, uen_filter="PR", mora_column="Mora_30-150", valu
     if df_filtered_uen.empty:
         return pd.DataFrame()
 
-    # 1. Calcular la Antigüedad_Meses (Aging month number, 1, 2, 3, ...)
+    # 🚨 LÓGICA DE FILTRADO DE ÚLTIMAS 24 COSECHAS 🚨
+    # 1. Identificar las últimas 24 cosechas únicas
+    last_24_cohorts = (
+        df_filtered_uen['Mes_BperturB']
+        .sort_values(ascending=False)
+        .unique()[:24]
+    )
+    
+    # 2. Filtrar el DataFrame para incluir solo esas 24 cosechas
+    df_filtered_uen = df_filtered_uen[df_filtered_uen['Mes_BperturB'].isin(last_24_cohorts)]
+
+    # 3. Calcular la Antigüedad_Meses (Aging month number, 1, 2, 3, ...)
     def get_aging_months(start, end):
+        # Esta función implementa FIN.MES($B6, D$4-1) ~ Aging mes número
         return (end.year - start.year) * 12 + (end.month - start.month) + 1
 
     df_filtered_uen['Antiguedad_Meses'] = df_filtered_uen.apply(
         lambda row: get_aging_months(row['Mes_BperturB'], row['fecha_cierre']), axis=1
     )
     
-    # 2. Calcular Numerador (Saldo Mora) y Denominador (Saldo Total)
+    # 4. Calcular Numerador (Saldo Mora) y Denominador (Saldo Total)
     df_filtered_uen['Mora_Saldo'] = np.where(
         df_filtered_uen[mora_column] == "Sí",
         df_filtered_uen[value_column],
@@ -87,7 +97,7 @@ def calculate_vintage_ratio(df, uen_filter="PR", mora_column="Mora_30-150", valu
     )
     df_filtered_uen['Total_Saldo'] = df_filtered_uen[value_column]
     
-    # 3. Agregar y Calcular Ratio
+    # 5. Agregar y Calcular Ratio
     vintage_agg = df_filtered_uen.groupby(['Mes_BperturB', 'Antiguedad_Meses']).agg(
         Total_Mora=('Mora_Saldo', 'sum'),
         Total_General=('Total_Saldo', 'sum')
@@ -100,7 +110,7 @@ def calculate_vintage_ratio(df, uen_filter="PR", mora_column="Mora_30-150", valu
         0
     )
     
-    # 4. Pivotar para visualización
+    # 6. Pivotar para visualización
     vintage_pivot = vintage_agg.pivot_table(
         index='Mes_BperturB', 
         columns='Antiguedad_Meses', 
@@ -141,14 +151,14 @@ df_filtered = df_master[
     (df_master['PR_Origen_Limpio'].isin(selected_origen))
 ]
 
-# --- VISUALIZACIONES PRINCIPALES ---
+# --- VISUALIZACIÓN PRINCIPAL: VINTAGE ---
 
-st.header("1. Vintage de Mora (Ratio Mora 30-150 / Saldo Total) - Cohortes PR")
+st.header("1. Vintage de Mora (Ratio Mora 30-150 / Saldo Total) - Últimas 24 Cohortes PR")
 st.markdown(f"**Fórmula:** $\\frac{{\\sum(\\text{{Saldo}} \\mid \\text{{Mora 30-150}}=\\text{{'Sí'}})}}{{\\sum(\\text{{Saldo Total}})}}$ por cohorte de apertura y antigüedad.")
 
 try:
-    # 1. Calcular el DataFrame de Vintage
-    vintage_df_pivot = calculate_vintage_ratio(df_master.copy()) # Usa df_master completo para Vintage
+    # 1. Calcular el DataFrame de Vintage (aplica el filtro de 24 meses internamente)
+    vintage_df_pivot = calculate_vintage_ratio(df_master.copy()) # Usa df_master completo
 
     if not vintage_df_pivot.empty:
         # 2. Crear el Heatmap con Plotly

@@ -10,19 +10,19 @@ FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_auto
 SHEET_MASTER = 'master_comite_automatizacion'
 SHEET_EJERCICIO = 'ejercicio'
 
-# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN MÍNIMA ---
+# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (W a BF) ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones mínimas necesarias."""
+    """Carga los datos y aplica las transformaciones de Excel (W a BF)."""
     try:
         # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
         
-        # Dependencias necesarias para la Mora_30-150
+        # Dependencias de mora y mapeo
         buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
+        buckets_mora_08_90 = ["008-030", "031-060", "061-090"]
 
-        # Conversiones de tipo
-        # 🚨 CORRECCIÓN DEFINITIVA: Manejar números de serie o strings de fecha
+        # Conversiones de tipo (Corrección de fecha para manejar números de serie o strings)
         def convert_mes_apertura(value):
             if pd.isna(value) or value in ['nan', 'NaN', '']:
                 return pd.NaT
@@ -32,7 +32,6 @@ def load_and_transform_data(file_path):
                 except:
                     pass
             try:
-                # Intento flexible para strings
                 return pd.to_datetime(str(value).strip(), errors='coerce', infer_datetime_format=True)
             except:
                 return pd.NaT
@@ -43,23 +42,42 @@ def load_and_transform_data(file_path):
         # W: Mes_BperturB (FIN.MES)
         df_master['Mes_BperturB'] = df_master['mes_apertura'] + pd.offsets.MonthEnd(0)
         
-        # Y: Mora_30-150 (Bandera de mora)
+        # Bandera: Mora_30-150
         df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
         
-        # AP: PR_Origen_Limpio (Para filtros interactivos)
+        # Bandera: Mora_08-90 (Necesaria para la nueva columna)
+        df_master['Mora_08-90'] = np.where(df_master['bucket'].isin(buckets_mora_08_90), 'Sí', 'No')
+
+        # AP: PR_Origen_Limpio
         digital_origenes = ["Promotor Digital", "Chatbot"]
         df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
 
-        # Columnas esenciales
-        return df_master[['Mes_BperturB', 'saldo_capital_total', 'Mora_30-150', 'uen', 'PR_Origen_Limpio']].copy()
+        # --- NUEVAS COLUMNAS DE SALDO CONDICIONAL ---
+        
+        # 1. saldo_capital_total_30150
+        df_master['saldo_capital_total_30150'] = np.where(
+            df_master['Mora_30-150'] == 'Sí',
+            df_master['saldo_capital_total'],
+            0
+        )
+        
+        # 2. saldo_capital_total_890
+        df_master['saldo_capital_total_890'] = np.where(
+            df_master['Mora_08-90'] == 'Sí',
+            df_master['saldo_capital_total'],
+            0
+        )
+
+        # Retornar todas las columnas necesarias (incluyendo las nuevas)
+        return df_master
 
     except Exception as e:
         st.error(f"Error al cargar o transformar los datos. Detalle: {e}. Por favor, verifique la ruta del archivo y el formato de la columna 'mes_apertura'.")
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO PIVOTE POR COHORTE Y MORA ---
-def calculate_saldo_pivot(df, time_column='Mes_BperturB', value_column='saldo_capital_total', mora_column='Mora_30-150'):
+# --- FUNCIÓN DE CÁLCULO DE SALDO TOTAL POR COHORTE ---
+def calculate_total_saldo_by_cohort(df, time_column='Mes_BperturB', value_column='saldo_capital_total'):
     
     # Excluir NaT antes de procesar
     df_filtered = df.dropna(subset=[time_column]).copy()
@@ -67,29 +85,14 @@ def calculate_saldo_pivot(df, time_column='Mes_BperturB', value_column='saldo_ca
     if df_filtered.empty:
         return pd.DataFrame()
 
-    # 1. Agrupar por cohorte y mora para sumar el saldo
-    df_summary = df_filtered.groupby([time_column, mora_column])[value_column].sum().reset_index()
+    # Agrupar por la cohorte de apertura y sumar el saldo
+    df_summary = df_filtered.groupby(time_column)[value_column].sum().reset_index()
+    df_summary.columns = ['Mes de Apertura', 'Saldo Capital Total']
     
-    # 2. Pivotar la tabla
-    pivot_table = df_summary.pivot_table(
-        index=time_column,
-        columns=mora_column,
-        values=value_column,
-        aggfunc='sum'
-    ).fillna(0)
+    # Ordenar por fecha de cohorte
+    df_summary = df_summary.sort_values('Mes de Apertura', ascending=False)
     
-    # 3. Calcular el total y ordenar
-    pivot_table['TOTAL SALDO'] = pivot_table.sum(axis=1)
-    
-    # 4. Formato final del índice
-    pivot_table.index.name = "Mes de Apertura"
-    pivot_table.index = pivot_table.index.strftime('%Y-%m')
-
-    # 5. Renombrar columnas para claridad
-    pivot_table.columns.name = "Mora 30-150"
-    
-    # Ordenar por fecha de cohorte (más reciente primero)
-    return pivot_table.sort_index(ascending=False)
+    return df_summary
 
 
 # --- CARGA PRINCIPAL DEL DATAFRAME ---
@@ -99,7 +102,7 @@ df_master = load_and_transform_data(FILE_PATH)
 # --- 2. INTERFAZ DE STREAMLIT ---
 
 st.set_page_config(layout="wide")
-st.title("📊 Desglose de Saldo Capital Total por Cohorte y Mora")
+st.title("📊 Desglose de Saldo Capital Total por Cohorte de Apertura")
 
 if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
@@ -132,48 +135,30 @@ if df_filtered.empty:
     st.stop()
 
 
-# --- VISUALIZACIÓN PRINCIPAL: TABLA PIVOTE DE SALDO ---
+# --- VISUALIZACIÓN PRINCIPAL: TABLA DE SALDO TOTAL ---
 
-st.header("1. Saldo Capital Total por Mes de Apertura y Bandera Mora 30-150")
+st.header("1. Saldo Capital Total Agregado por Cohorte de Apertura")
 
 try:
-    # Calcular la Tabla Pivote
-    df_pivot_saldo = calculate_saldo_pivot(df_filtered) 
+    # Calcular el Saldo Total, agrupado por Mes_BperturB
+    df_saldo_total = calculate_total_saldo_by_cohort(df_filtered) 
 
-    if not df_pivot_saldo.empty:
+    if not df_saldo_total.empty:
+        # Formato de la Fecha
+        df_saldo_total['Mes de Apertura'] = df_saldo_total['Mes de Apertura'].dt.strftime('%Y-%m')
+
         # Formato de moneda para la tabla
         def format_currency(val):
-            return f'{val:,.0f}'
+            return f'{val:,.2f}'
 
-        st.subheader(f"Suma de Saldo por Cohorte ({', '.join(selected_uens)})")
+        # Mostrar Tabla Resumen
+        st.subheader("Suma de Saldo Capital Total por Mes de Apertura")
         
-        # Mostrar la tabla formateada
-        st.dataframe(df_pivot_saldo.applymap(format_currency))
-
-        # Opcional: Gráfico de barras apiladas para visualizar la distribución
-        st.subheader("Distribución de Saldo (Mora vs. No Mora)")
-        
-        df_pivot_chart = df_pivot_saldo.reset_index().melt(
-            id_vars='Mes de Apertura',
-            value_vars=['Sí', 'No'], # Columnas de Mora
-            var_name='Mora 30-150',
-            value_name='Saldo Capital'
-        )
-        
-        fig_bar = px.bar(
-            df_pivot_chart,
-            x='Mes de Apertura',
-            y='Saldo Capital',
-            color='Mora 30-150',
-            title='Distribución de Saldo Capital: Mora vs. No Mora',
-            template='plotly_white',
-            labels={'Saldo Capital': 'Saldo Capital Total'}
-        )
-        fig_bar.update_yaxes(tickformat=",0f")
-        st.plotly_chart(fig_bar, use_container_width=True)
+        df_saldo_total['Saldo Capital Total'] = df_saldo_total['Saldo Capital Total'].apply(format_currency)
+        st.dataframe(df_saldo_total, hide_index=True)
 
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar el gráfico.")
 
 except Exception as e:
-    st.error(f"Error al generar la tabla pivote de Saldo: {e}")
+    st.error(f"Error al generar la tabla de Saldo Total: {e}")

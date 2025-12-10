@@ -233,4 +233,22 @@ try:
         # Aplicar formato de moneda a todas las columnas numéricas
         df_display = df_saldo_consolidado.copy()
         
-        # Recorrer todas las columnas desde la segunda
+        # Recorrer todas las columnas desde la segunda (índice 1) en adelante.
+        for col in df_display.columns[1:]:
+            # Convertimos a numérico de nuevo (por si Pandas lo interpretó como object) y aplicamos formato
+            df_display[col] = pd.to_numeric(df_display[col], errors='coerce').fillna(0).apply(format_currency)
+            
+        st.dataframe(df_display, hide_index=True)
+
+        st.subheader("Verificación de las primeras 50 filas de datos filtrados")
+        # Mostrar algunas columnas clave para la verificación
+        verification_cols = ['Mes_BperturB', 'fecha_cierre', 'dif_mes', 'Mora_30-150', 'saldo_capital_total', 'saldo_capital_total_c1', 'saldo_capital_total_c2', 'saldo_capital_total_c25']
+        
+        existing_cols = [col for col in verification_cols if col in df_filtered.columns]
+        st.dataframe(df_filtered[existing_cols].head(50))
+
+    else:
+        st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")
+
+except Exception as e:
+    st.error(f"Error al generar la tabla de Saldo Consolidado: {e}")

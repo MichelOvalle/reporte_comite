@@ -21,7 +21,12 @@ def load_and_transform_data(file_path):
         buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
 
         # Conversiones de tipo
-        df_master['mes_apertura'] = pd.to_datetime(df_master['mes_apertura'], errors='coerce')
+        # 🚨 CORRECCIÓN APLICADA: Forzar el formato YYYY-MM para mes_apertura
+        df_master['mes_apertura'] = pd.to_datetime(
+            df_master['mes_apertura'], 
+            format='%Y-%m', 
+            errors='coerce' # Convierte valores no válidos a NaT
+        )
         df_master['fecha_cierre'] = pd.to_datetime(df_master['fecha_cierre'], errors='coerce')
 
         # W: Mes_BperturB (FIN.MES)
@@ -52,7 +57,8 @@ def calculate_mora_sum(df, time_periods=24, mora_filter="Sí", time_column='Mes_
         return pd.DataFrame()
 
     # 2. Identificar las últimas N cohortes de apertura (Mes_BperturB)
-    all_dates = df_mora[time_column].sort_values(ascending=False).unique()
+    # 🚨 .dropna() para evitar el problema del 1970-01 (NaT)
+    all_dates = df_mora[time_column].dropna().sort_values(ascending=False).unique()
     last_n_dates = all_dates[:min(time_periods, len(all_dates))]
     
     # 3. Filtrar el DataFrame para incluir solo esas N cohortes
@@ -62,7 +68,7 @@ def calculate_mora_sum(df, time_periods=24, mora_filter="Sí", time_column='Mes_
     df_summary = df_mora.groupby(time_column)[value_column].sum().reset_index()
     df_summary.columns = ['Mes de Apertura', 'Saldo en Mora']
     
-    # Ordenar por fecha para la visualización
+    # 5. Ordenar por fecha para la visualización
     df_summary = df_summary.sort_values('Mes de Apertura')
     
     return df_summary

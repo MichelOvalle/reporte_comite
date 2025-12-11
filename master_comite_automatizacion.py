@@ -197,6 +197,65 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     return df_tasas
 
 
+# --- FUNCIÓN DE ESTILIZADO DE DATAFRAME (FORMATO CONDICIONAL) ---
+
+def highlight_vintage_table(s):
+    """Aplica formato condicional de color a las tasas de mora por fila."""
+    
+    # Crea una copia de la matriz de valores para aplicar estilos (solo columnas de tasas)
+    # Las columnas de tasas comienzan en el índice 2 (después de Mes de Apertura y Saldo Capital Total)
+    df_rates = s.iloc[:, 2:]
+    
+    # Reemplazar los strings de porcentaje (ej: '5.20%') y vacíos ('') por floats o NaN 
+    # para que la coloración funcione correctamente
+    def clean_cell_for_style(cell):
+        if isinstance(cell, str):
+            if cell.endswith('%'):
+                return float(cell.replace('%', '').replace(',', ''))
+            elif cell == '':
+                return np.nan
+        return cell
+
+    # Convertimos los datos de las tasas a float para la lógica de color, manteniendo el DF original
+    df_rates_numeric = df_rates.applymap(clean_cell_for_style)
+    
+    # Matriz para aplicar estilos, inicialmente vacía (todos los valores son strings vacíos)
+    styles = pd.DataFrame('', index=df_rates.index, columns=df_rates.columns)
+
+    # Iterar por fila (cohorte) para aplicar el formato condicional
+    for idx in df_rates_numeric.index:
+        # Los datos de la fila actual para la coloración
+        row_data = df_rates_numeric.loc[idx].dropna()
+        
+        if row_data.empty:
+            continue
+            
+        # Generar el mapa de colores (de rojo a verde, alto es malo)
+        # Usamos row_data.index para aplicar el estilo solo a las columnas con datos numéricos
+        # cmap='RdYlGn_r' invierte el mapa para que rojo (Rd) sea alto y verde (Gn) sea bajo.
+        
+        # La función de estilo genera una matriz de strings CSS para aplicar a la fila
+        try:
+            color_map = row_data.to_frame().T.style.background_gradient(
+                cmap='RdYlGn_r', # Rojo-Amarillo-Verde, invertido
+                axis=1, # Aplicar por fila
+                subset=pd.IndexSlice[idx, row_data.index] # Asegura que solo se aplique a los datos válidos
+            )._css
+            
+            # Extraer solo el string CSS y aplicarlo a la matriz de estilos
+            for col in row_data.index:
+                # Encuentra el estilo generado para la celda específica
+                css_style = next((item[1] for item in color_map if item[0] == (idx, col)), '')
+                if css_style:
+                    styles.loc[idx, col] = css_style
+        except:
+             # En caso de error (ej. solo un valor en la fila), se salta la coloración
+             continue
+
+
+    # Devolvemos la matriz de estilos solo para las columnas de tasas
+    return styles
+
 # --- CARGA PRINCIPAL DEL DATAFRAME ---
 df_master = load_and_transform_data(FILE_PATH)
 
@@ -265,54 +324,90 @@ try:
     df_tasas_mora = calculate_saldo_consolidado(df_filtered) 
 
     if not df_tasas_mora.empty:
-        # Formato de la Fecha (para la cohorte de apertura)
-        df_tasas_mora['Mes de Apertura'] = df_tasas_mora['Mes de Apertura'].dt.strftime('%Y-%m')
+        # Guardamos el DataFrame original con fechas Datetime para las comparaciones
+        df_display_raw = df_tasas_mora.copy()
+        
+        # 1. Aplicar formato de FECHA (Mes de Apertura)
+        df_display_raw['Mes de Apertura'] = df_display_raw['Mes de Apertura'].dt.strftime('%Y-%m')
 
         # Formato de moneda para los montos y porcentaje para las tasas
         def format_currency(val):
             return f'{val:,.0f}'
         def format_percent(val):
+            # Formatear el valor con 2 decimales y el símbolo %
             return f'{val:,.2f}%'
         
-        # 3. Aplicar la lógica de corte (Mes de Apertura > Mes de Columna)
-        df_display = df_tasas_mora.copy()
         
-        # Columnas a partir del índice 2 son las tasas (índice 0 es Mes de Apertura, índice 1 es Saldo Total)
+        # 2. Aplicar la lógica de corte (Mes de Apertura > Mes de Columna)
+        df_display = df_display_raw.copy()
+        
+        # Columnas a partir del índice 2 son las tasas
         tasa_cols = df_display.columns[2:]
+        
+        # ⚠️ IMPORTANTE: Aplicaremos el formato *numérico* ANTES del corte, 
+        # y luego usaremos este df con números para la coloración,
+        # pero pasaremos el df con strings a Streamlit.
+
+        # DF para el styler (solo tasas)
+        df_rates_numeric = df_display[tasa_cols].copy()
+
 
         for index, row in df_display.iterrows():
             cohort_date_str = row['Mes de Apertura']
             
-            # Convertir la fecha de apertura de la fila a Datetime
             try:
                 cohort_date = pd.to_datetime(cohort_date_str)
             except:
-                # Si la conversión falla, saltamos la fila
                 continue
 
             for col in tasa_cols:
-                # Convertir la fecha de la columna a Datetime
                 try:
-                    col_date = pd.to_datetime(col + '-01') # Añadimos '-01' para formar una fecha completa
+                    col_date = pd.to_datetime(col + '-01')
                 except:
-                    # Si la columna no es una fecha válida, la saltamos (ej., 'Mes de Apertura')
                     continue
 
-                # Lógica: Si la fecha de la columna (Reporte) es anterior a la fecha de la fila (Apertura)
-                # O si la fecha de la columna (Reporte) es igual a la fecha de la fila (Apertura)
-                # Ya que la Mora 30-150 se observa por primera vez UN MES después de la apertura.
                 if col_date <= cohort_date: 
-                    # Asignamos valor nulo (string vacío)
+                    # Corte: Asignamos string vacío
                     df_display.loc[index, col] = '' 
+                    # También asignamos NaN en la versión numérica para que no entre en la coloración
+                    df_rates_numeric.loc[index, col] = np.nan 
                 else:
-                    # Aplicamos formato de porcentaje
+                    # Aplicamos formato de porcentaje SOLO en df_display
                     df_display.loc[index, col] = format_percent(row[col])
 
-        # Formatear la columna de Saldo Capital Total (Monto)
-        df_display.iloc[:, 1] = df_display.iloc[:, 1].apply(format_currency)
 
+        # 3. Aplicar formato de Monto a Saldo Capital Total
+        df_display.iloc[:, 1] = df_display.iloc[:, 1].apply(format_currency)
+        
+        
+        # 4. APLICAR ESTILOS CON STYLER
         st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (Fechas de Reporte)")
-        st.dataframe(df_display, hide_index=True)
+        
+        # Estilo para el Saldo Capital Total (hacerlo en negrita y alinear a la derecha)
+        def style_saldo_capital(val):
+            return 'font-weight: bold; text-align: right;'
+
+        # Creamos el Styler
+        styler = df_display.style.apply(
+            highlight_vintage_table, 
+            axis=None, 
+            subset=tasa_cols # Solo aplicamos la función de color a las columnas de tasas
+        ).set_properties(
+            **{'text-align': 'center'}, # Centrar todas las celdas por defecto
+            subset=tasa_cols
+        ).applymap(
+            style_saldo_capital,
+            subset=df_display.columns[1] # Columna de Saldo Capital Total
+        )
+        
+        # Estilo para la columna de Mes de Apertura (la primera)
+        styler = styler.set_properties(
+            **{'font-weight': 'bold', 'text-align': 'left'},
+            subset=[df_display.columns[0]]
+        )
+        
+        # Renderizamos en Streamlit
+        st.dataframe(styler, hide_index=True)
 
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")

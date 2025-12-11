@@ -575,7 +575,8 @@ with tab2:
     # --- GRÁFICA 1: CURVAS VINTAGE (Múltiples Cohortes) ---
     # ----------------------------------------------------------------------------------
     st.subheader("1. Curvas de Mora Vintage (Mora 30-150)")
-    st.write("Muestra la evolución de la tasa de mora de las **últimas 5 cohortes** disponibles a lo largo de su vida (Antigüedad).")
+    # Se ajusta la descripción
+    st.write("Muestra la evolución de la tasa de mora de las **últimas 12 cohortes** disponibles a lo largo de su vida (Antigüedad).")
 
     # 1. Preparar datos para el formato Largo (Long Format)
     df_long = df_display_raw_30150.iloc[:, 0:].copy()
@@ -583,12 +584,12 @@ with tab2:
     # Crear la columna de Antigüedad
     vintage_cols = df_long.columns[2:].tolist()
     
-    # Restringir a las últimas 5 cohortes para legibilidad
-    cohortes_a_mostrar = df_long['Mes de Apertura'].sort_values(ascending=False).unique()[:5]
+    # MODIFICACIÓN 1: Restringir a las últimas 12 cohortes
+    cohortes_a_mostrar = df_long['Mes de Apertura'].sort_values(ascending=False).unique()[:12]
     df_long_filtered = df_long[df_long['Mes de Apertura'].isin(cohortes_a_mostrar)].copy()
     
     if not df_long_filtered.empty:
-        # CORRECCIÓN CLAVE: Creamos la columna de etiqueta de fecha ANTES de derretir (melt)
+        # Creamos la columna de etiqueta de fecha antes de derretir (melt)
         df_long_filtered['Cohorte Etiqueta'] = df_long_filtered['Mes de Apertura'].dt.strftime('%Y-%m')
         
         df_long_melt = df_long_filtered.melt(
@@ -602,7 +603,6 @@ with tab2:
         df_long_melt.dropna(subset=['Tasa (%)'], inplace=True)
         
         # Eliminamos filas donde la tasa es 0 o NaN después de la transformación
-        # Convertimos la tasa a float aquí para el filtro, ya que podría contener objetos np.nan
         df_long_melt['Tasa (%)'] = pd.to_numeric(df_long_melt['Tasa (%)'], errors='coerce')
         df_long_melt.dropna(subset=['Tasa (%)'], inplace=True)
 
@@ -624,8 +624,11 @@ with tab2:
         # 3. Generar Gráfica Altair
         chart1 = alt.Chart(df_long_melt).mark_line(point=True).encode(
             x=alt.X('Antigüedad (Meses)', type='quantitative', title='Antigüedad de la Cohorte (Meses)', axis=alt.Axis(tickMinStep=1)),
-            y=alt.Y('Tasa (%)', type='quantitative', title='Tasa de Mora (%)', axis=alt.Axis(format='.2f')),
-            # CORRECCIÓN: Usamos la columna 'Cohorte Etiqueta' como nominal para la leyenda
+            y=alt.Y('Tasa (%)', type='quantitative', title='Tasa de Mora (%)', 
+                    # MODIFICACIÓN 2: Forzar el eje Y a empezar en 0
+                    scale=alt.Scale(domain=[0, alt.Undefined]), 
+                    axis=alt.Axis(format='.2f')),
+            
             color=alt.Color('Cohorte Etiqueta', type='nominal', title='Cohorte (Mes Apertura)'),
             tooltip=['Cohorte Etiqueta', 'Antigüedad (Meses)', alt.Tooltip('Tasa (%)', format='.2f')]
         ).properties(

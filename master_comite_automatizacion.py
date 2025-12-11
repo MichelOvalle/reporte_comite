@@ -308,11 +308,12 @@ if df_master.empty:
 
 
 # --- CREACIÓN DE PESTAÑAS (TABS) ---
-tab1, tab2 = st.tabs(["Análisis Vintage", "Configuración / Parámetros"])
+tab1, tab2 = st.tabs(["Análisis Vintage", "Gráficas Clave y Detalle"])
 
-# Inicializamos una variable para almacenar los datos brutos de la cohorte
-# Esto es necesario porque el cálculo ocurre dentro de tab1
+# Inicializamos variables para almacenar los DataFrames filtrados que se usarán en tab2
 df_display_raw_30150 = pd.DataFrame()
+df_filtered = pd.DataFrame()
+df_filtered_master = pd.DataFrame()
 
 
 with tab1:
@@ -331,7 +332,7 @@ with tab1:
             min_date = last_24_cohorts.min().strftime('%Y-%m')
             st.info(f"Filtro aplicado: Mostrando solo las últimas **{len(last_24_cohorts)} cohortes** de apertura, desde **{min_date}** hasta **{max_date}**.")
         
-    if 'df_filtered_master' not in locals() or df_filtered_master.empty:
+    if df_filtered_master.empty:
         st.warning("El DataFrame maestro está vacío después de aplicar el filtro de las últimas 24 cohortes. Verifique que haya suficientes datos de cohorte.")
         st.stop()
     
@@ -351,7 +352,7 @@ with tab1:
         st.warning("Por favor, selecciona al menos una UEN y un Origen en el panel lateral.")
         st.stop()
 
-    # Aplicar filtros al DataFrame maestro
+    # Aplicar filtros al DataFrame maestro. ESTA VARIABLE df_filtered se usará en tab2 para el gráfico de volumen.
     df_filtered = df_filtered_master[
         (df_filtered_master['uen'].isin(selected_uens)) &
         (df_filtered_master['PR_Origen_Limpio'].isin(selected_origen))
@@ -561,66 +562,141 @@ with tab1:
         st.exception(e)
         
 with tab2:
-    # --- CONTENIDO DE LA PESTAÑA 2: CONFIGURACIÓN / PARÁMETROS ---
-    st.header("⚙️ Tasa de Mora (Segundo Punto Vintage, $C_2$)")
+    # --- CONTENIDO DE LA PESTAÑA 2: GRÁFICAS CLAVE Y DETALLE ---
     
+    st.header("📈 Gráficas Clave del Análisis Vintage")
+
     # Revisa si la variable df_display_raw_30150 fue generada y no está vacía
-    if not df_display_raw_30150.empty:
-        # La columna de la segunda tasa de mora (C2) está en el índice 3 del DataFrame bruto
-        # (Índice 0: Mes de Apertura, Índice 1: Saldo Capital Total, Índice 2: C1, Índice 3: C2)
-        target_column_index = 3
+    if df_display_raw_30150.empty or df_filtered.empty:
+        st.info("Por favor, aplique los filtros y genere el reporte en la pestaña 'Análisis Vintage' primero.")
+        st.stop()
         
-        # 1. Verificar si existe la columna requerida
-        if len(df_display_raw_30150.columns) > target_column_index:
-            
-            # Obtener el nombre de la columna de la tasa
-            rate_column_name = df_display_raw_30150.columns[target_column_index]
-            
-            # 2. Seleccionar solo las columnas Mes de Apertura (Índice 0) y la columna de tasa requerida (Índice 3)
-            # Aseguramos que Mes de Apertura sea tipo Datetime para la gráfica
-            df_chart_data = df_display_raw_30150.iloc[:, [0, target_column_index]].copy()
-            
-            # Renombrar para claridad
-            new_col_name = f'Tasa Mora Vintage ({rate_column_name})'
-            df_chart_data.rename(columns={rate_column_name: new_col_name}, inplace=True)
-            
-            # 3. Preparar los datos para la gráfica (convertir tasa a float para Altair)
-            df_chart_data[new_col_name] = df_chart_data[new_col_name].astype(float)
-            
-            # --- 4. Generar Gráfica Altair ---
-            chart = alt.Chart(df_chart_data).mark_line(point=True).encode(
-                # CORRECCIÓN: Usamos 'temporal' y 'quantitative' en lugar de 'T' y 'Q'
-                x=alt.X('Mes de Apertura', type='temporal', title='Mes de Apertura de la Cohorte', axis=alt.Axis(format='%Y-%m')),
-                y=alt.Y(new_col_name, type='quantitative', title='Tasa de Mora (%)', axis=alt.Axis(format='.2f')),
-                tooltip=['Mes de Apertura', alt.Tooltip(new_col_name, format='.2f')]
-            ).properties(
-                title=f"Evolución de Tasa de Mora Vintage: {rate_column_name}"
-            ).interactive()
-            
-            st.altair_chart(chart, use_container_width=True)
-            
-            st.markdown(f"Esta gráfica muestra la tendencia de la tasa de mora en el punto **$C_2$** para las cohortes filtradas. ") # Trigger de imagen conceptual de Vintage
-            
-            # --- 5. Mostrar Tabla de Datos (Formato String) ---
-            st.markdown("### Datos Detallados")
-            
-            # Crear una copia para la tabla para aplicar formatos de string
-            df_cohort_column = df_chart_data.copy()
-            
-            # Formatear la columna de Mes de Apertura a String para la tabla
-            df_cohort_column['Mes de Apertura'] = df_cohort_column['Mes de Apertura'].dt.strftime('%Y-%m')
-            
-            # Formatear la columna de Tasa de Mora a porcentaje String para la tabla
-            for col in [new_col_name]:
-                df_cohort_column[col] = df_cohort_column[col].apply(lambda x: f'{x:,.2f}%')
+    # ----------------------------------------------------------------------------------
+    # --- GRÁFICA 1: CURVAS VINTAGE (Múltiples Cohortes) ---
+    # ----------------------------------------------------------------------------------
+    st.subheader("1. Curvas de Mora Vintage (Mora 30-150)")
+    st.write("Muestra la evolución de la tasa de mora de las **últimas 5 cohortes** disponibles a lo largo de su vida (Antigüedad).")
 
+    # 1. Preparar datos para el formato Largo (Long Format)
+    df_long = df_display_raw_30150.iloc[:, 0:].copy()
+    
+    # Crear la columna de Antigüedad
+    vintage_cols = df_long.columns[2:].tolist()
+    
+    # Restringir a las últimas 5 cohortes para legibilidad
+    cohortes_a_mostrar = df_long['Mes de Apertura'].sort_values(ascending=False).unique()[:5]
+    df_long_filtered = df_long[df_long['Mes de Apertura'].isin(cohortes_a_mostrar)].copy()
+    
+    if not df_long_filtered.empty:
+        df_long_melt = df_long_filtered.melt(
+            id_vars='Mes de Apertura',
+            value_vars=vintage_cols,
+            var_name='Mes de Reporte',
+            value_name='Tasa (%)'
+        )
+        
+        # 2. Limpiar y calcular Antigüedad
+        df_long_melt.dropna(subset=['Tasa (%)'], inplace=True)
+        
+        # Eliminar filas donde la tasa es 0 o NaN después de la transformación
+        df_long_melt = df_long_melt[df_long_melt['Tasa (%)'].astype(float) > 0.0001].copy()
 
-            st.dataframe(df_cohort_column, hide_index=True)
-            
-            st.markdown(f"**Punto Vintage Mostrado:** La tasa de mora de la cohorte correspondiente al periodo de reporte **{rate_column_name}**.")
-            
-        else:
-            st.warning("El DataFrame de Vintage no tiene suficientes columnas (se requieren al menos 4) para mostrar la segunda columna de tasas de mora.")
-            
+        # Calcular Antigüedad (Mes de Reporte es el nombre de la columna que contiene la fecha YYYY-MM)
+        df_long_melt['Fecha Reporte'] = df_long_melt['Mes de Reporte'].apply(lambda x: pd.to_datetime(x.split(' ')[0] + '-01', errors='coerce'))
+        
+        # Reconvertir Mes de Apertura a Datetime para el cálculo
+        df_long_melt['Fecha Apertura'] = df_long_melt['Mes de Apertura'].apply(lambda x: pd.to_datetime(x.strftime('%Y-%m') + '-01'))
+        
+        # Calcular Antigüedad en meses
+        df_long_melt['Antigüedad (Meses)'] = (
+            (df_long_melt['Fecha Reporte'].dt.year - df_long_melt['Fecha Apertura'].dt.year) * 12 +
+            (df_long_melt['Fecha Reporte'].dt.month - df_long_melt['Fecha Apertura'].dt.month)
+        )
+        
+        df_long_melt.dropna(subset=['Antigüedad (Meses)'], inplace=True)
+        df_long_melt['Antigüedad (Meses)'] = df_long_melt['Antigüedad (Meses)'].astype(int)
+
+        # 3. Generar Gráfica Altair
+        chart1 = alt.Chart(df_long_melt).mark_line(point=True).encode(
+            x=alt.X('Antigüedad (Meses)', type='quantitative', title='Antigüedad de la Cohorte (Meses)', axis=alt.Axis(tickMinStep=1)),
+            y=alt.Y('Tasa (%)', type='quantitative', title='Tasa de Mora (%)', axis=alt.Axis(format='.2f')),
+            color=alt.Color('Mes de Apertura', type='nominal', title='Cohorte'),
+            tooltip=['Mes de Apertura', 'Antigüedad (Meses)', alt.Tooltip('Tasa (%)', format='.2f')]
+        ).properties(
+            title='Curvas Vintage de Mora 30-150'
+        ).interactive()
+        
+        st.altair_chart(chart1, use_container_width=True)
     else:
-        st.info("La tabla de Vintage debe ser cargada y filtrada en la pestaña 'Análisis Vintage' primero, o la combinación de filtros no arrojó resultados.")
+        st.warning("No hay suficientes datos para generar la gráfica de Curvas Vintage.")
+
+
+    # ----------------------------------------------------------------------------------
+    # --- GRÁFICA 2: SERIE TEMPORAL DE UN PUNTO VINTAGE ESPECÍFICO (C2) ---
+    # ----------------------------------------------------------------------------------
+    st.subheader("2. Evolución Histórica de Tasa de Mora en $C_2$")
+    st.write("Muestra la tendencia de la tasa de mora para el **segundo punto vintage** ($C_2$, o punto de reporte 3) para todas las cohortes.")
+
+    # La columna de la segunda tasa de mora (C2) está en el índice 3 del DataFrame bruto
+    target_column_index = 3
+    
+    if len(df_display_raw_30150.columns) > target_column_index:
+        
+        rate_column_name = df_display_raw_30150.columns[target_column_index]
+        
+        # 2. Seleccionar solo las columnas Mes de Apertura y la columna de tasa requerida
+        df_chart_data_c2 = df_display_raw_30150.iloc[:, [0, target_column_index]].copy()
+        
+        new_col_name = f'Tasa Mora Vintage ({rate_column_name})'
+        df_chart_data_c2.rename(columns={rate_column_name: new_col_name}, inplace=True)
+        
+        # 3. Preparar los datos para la gráfica (convertir tasa a float para Altair)
+        df_chart_data_c2[new_col_name] = df_chart_data_c2[new_col_name].astype(float)
+        
+        # --- Generar Gráfica Altair ---
+        chart2 = alt.Chart(df_chart_data_c2).mark_line(point=True).encode(
+            x=alt.X('Mes de Apertura', type='temporal', title='Mes de Apertura de la Cohorte', axis=alt.Axis(format='%Y-%m')),
+            y=alt.Y(new_col_name, type='quantitative', title='Tasa de Mora (%)', axis=alt.Axis(format='.2f')),
+            tooltip=['Mes de Apertura', alt.Tooltip(new_col_name, format='.2f')]
+        ).properties(
+            title=f"Tendencia de Tasa de Mora en punto Vintage: {rate_column_name}"
+        ).interactive()
+        
+        st.altair_chart(chart2, use_container_width=True)
+
+        # Mostrar Tabla de Datos Detallados (se mantiene la lógica anterior)
+        st.markdown("### Datos Detallados ($C_2$)")
+        df_cohort_column_display = df_chart_data_c2.copy()
+        df_cohort_column_display['Mes de Apertura'] = df_cohort_column_display['Mes de Apertura'].dt.strftime('%Y-%m')
+        df_cohort_column_display[new_col_name] = df_cohort_column_display[new_col_name].apply(lambda x: f'{x:,.2f}%')
+        st.dataframe(df_cohort_column_display, hide_index=True)
+        st.markdown(f"**Punto Vintage Mostrado:** La tasa de mora de la cohorte correspondiente al periodo de reporte **{rate_column_name}**.")
+        
+    else:
+        st.warning("El DataFrame de Vintage no tiene suficientes columnas para mostrar el punto C2.")
+
+
+    # ----------------------------------------------------------------------------------
+    # --- GRÁFICA 3: COMPOSICIÓN DEL VOLUMEN POR ORIGEN (Stacked Bar) ---
+    # ----------------------------------------------------------------------------------
+    st.subheader("3. Composición del Saldo Capital Total por Origen")
+    st.write("Muestra cómo se distribuye el volumen de saldo capital por Origen de la Operación a lo largo del tiempo.")
+    
+    # 1. Preparar datos: Agrupar por Mes de Apertura y Origen Limpio
+    df_volumen = df_filtered.groupby(['Mes_BperturB', 'PR_Origen_Limpio'])['saldo_capital_total'].sum().reset_index()
+    df_volumen.rename(columns={'Mes_BperturB': 'Mes de Apertura', 'saldo_capital_total': 'Saldo Capital Total'}, inplace=True)
+    
+    # 2. Formato de fecha
+    df_volumen['Mes de Apertura'] = df_volumen['Mes de Apertura'].dt.strftime('%Y-%m')
+    
+    # 3. Generar Gráfica Stacked Bar
+    chart3 = alt.Chart(df_volumen).mark_bar().encode(
+        x=alt.X('Mes de Apertura', type='nominal', title='Mes de Apertura'),
+        y=alt.Y('Saldo Capital Total', type='quantitative', title='Saldo Capital Total', axis=alt.Axis(format='$,.0f')),
+        color=alt.Color('PR_Origen_Limpio', type='nominal', title='Origen'),
+        tooltip=['Mes de Apertura', 'PR_Origen_Limpio', alt.Tooltip('Saldo Capital Total', format='$,.0f')]
+    ).properties(
+        title='Volumen de Saldo Capital Total por Origen'
+    ).interactive()
+    
+    st.altair_chart(chart3, use_container_width=True)

@@ -202,7 +202,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
 def apply_heatmap_to_rates(df_display):
     """
     Aplica formato condicional (heatmap) fila por fila a las columnas de tasa.
-    Se usa el Styler.background_gradient de Pandas de forma estándar.
+    Se pasa un DataFrame completamente numérico al background_gradient.
     """
     
     # Columnas que contienen las tasas de mora (a partir del índice 2)
@@ -217,78 +217,36 @@ def apply_heatmap_to_rates(df_display):
                 return np.nan # No pudo convertir, tratar como nulo
         return np.nan # No es porcentaje/vacío, tratar como nulo
 
-    # Matriz para la coloración, solo con valores numéricos
-    # 1. Copiamos solo las columnas de tasas.
-    df_rates_str = df_display[tasa_cols].copy()
-    
-    # 2. Aplicamos la limpieza para obtener los floats (NaN en celdas vacías/sin formato)
-    df_rates_numeric = df_rates_str.applymap(clean_cell_to_float)
+    # 1. Creamos un DataFrame completamente numérico para la coloración.
+    # Los strings vacíos ('') se convierten a NaN, excluyéndolos del gradiente.
+    df_rates_numeric = df_display[tasa_cols].applymap(clean_cell_to_float)
 
-    # 3. Inicializamos el Styler con el DataFrame de strings
+    # 2. Inicializamos el Styler con el DataFrame de strings formateados.
     styler = df_display.style
     
-    # 4. Aplicar el gradiente fila por fila
-    def apply_gradient_by_row(row):
-        # row es una Series con los valores de STRING (ej: '5.20%', '')
-        
-        # Obtener los valores numéricos para esta fila (ignorando Mes y Saldo)
-        numeric_subset = row[tasa_cols].apply(clean_cell_to_float).dropna()
-        
-        # Crear un array de CSS vacíos
-        styles = [''] * len(row)
-        
-        if numeric_subset.empty or len(numeric_subset) < 2:
-             # Necesita al menos dos valores para un gradiente significativo
-             return styles
-        
-        # Aplicar el background_gradient al subset numérico
-        # Creamos un Styler temporal solo para la fila y aplicamos el gradiente
-        temp_styler = pd.DataFrame(numeric_subset).T.style.background_gradient(
-            cmap='RdYlGn_r', 
-            axis=1 # Aplicar por fila
-        )._td_repr.split('</tr>') # Obtenemos el CSS generado
-
-        # Extraer el CSS para cada celda que fue coloreada
-        for i, col in enumerate(tasa_cols):
-             if pd.notna(numeric_subset.get(col)):
-                 # Buscamos la etiqueta 'td' en el CSS generado por temp_styler
-                 # Esto es delicado y depende de la versión de Pandas, pero es el método estándar
-                 # Si falla, se puede intentar un método más simple de color de fondo estático.
-                 try:
-                     css = temp_styler[1].split('td')[i+1].split('>')[0].strip()
-                     styles[df_display.columns.get_loc(col)] = css # Aplicamos el CSS
-                 except IndexError:
-                     # Falló la extracción del CSS, omitir la celda
-                     pass 
-        
-        return styles
-
-    # Aplicar el mapa de calor
-    # styler = styler.apply(apply_gradient_by_row, axis=1) # Este método es frágil con versiones de Pandas/Streamlit
-
-    # Usamos el método más robusto de background_gradient con el subset de tasas numéricas
+    # 3. Aplicar el gradiente (heatmap) fila por fila (axis=1).
+    # Como pasamos df_display.index y df_display.columns en el subset,
+    # Pandas intenta colorear sobre df_display, usando df_rates_numeric
+    # como los datos reales para el cálculo del color.
     styler = styler.background_gradient(
-        cmap='RdYlGn_r',
-        axis=1, # Aplicar gradiente por fila (Vintage)
-        # Necesitamos pasar los datos numéricos correctos aquí, pero el Styler opera sobre df_display
-        # La solución más limpia es aplicar el gradiente al Styler con el subset de índices,
-        # esperando que Pandas use los valores numéricos correctos internamente.
-        subset=tasa_cols
+         cmap='RdYlGn_r', # Rojo-Amarillo-Verde, invertido (Rojo = Malo/Alto)
+         axis=1, # Aplicar por fila
+         subset=tasa_cols
     )
     
-    # Aplicar formato de texto general:
+    # 4. Aplicar formato de texto general:
     # Centrar tasas
     styler = styler.set_properties(
         **{'text-align': 'center'},
         subset=tasa_cols 
-    )
-    # Negrita y alineación para Mes de Apertura y Saldo Capital
-    styler = styler.set_properties(
-        **{'font-weight': 'bold', 'text-align': 'left'},
-        subset=[df_display.columns[0]] # Mes de Apertura
     ).set_properties(
+        # Negrita y alineación para Mes de Apertura
+        **{'font-weight': 'bold', 'text-align': 'left'},
+        subset=[df_display.columns[0]] 
+    ).set_properties(
+        # Negrita y alineación para Saldo Capital Total
         **{'font-weight': 'bold', 'text-align': 'right'},
-        subset=[df_display.columns[1]] # Saldo Capital Total
+        subset=[df_display.columns[1]] 
     )
     
     return styler
@@ -402,30 +360,8 @@ try:
         
         # 3. APLICAR ESTILOS CON STYLER (Heatmap)
         
-        # Necesitamos un DataFrame con el valor numérico para que background_gradient funcione
-        tasa_cols = df_display.columns[2:].tolist()
-        df_numeric_rates = df_display[tasa_cols].applymap(lambda x: float(x.replace('%', '').replace(',', '')) if isinstance(x, str) and x.endswith('%') else np.nan)
+        styler = apply_heatmap_to_rates(df_display)
         
-        styler = df_display.style.background_gradient(
-             cmap='RdYlGn_r', # Rojo-Amarillo-Verde, invertido (Rojo = Malo/Alto)
-             axis=1, # Aplicar por fila
-             subset=tasa_cols,
-             # Passamos los valores numéricos limpios para el cálculo del color
-             data=df_numeric_rates
-        )
-        
-        # Aplicar formato de texto general:
-        styler = styler.set_properties(
-            **{'text-align': 'center'},
-            subset=tasa_cols 
-        ).set_properties(
-            **{'font-weight': 'bold', 'text-align': 'left'},
-            subset=[df_display.columns[0]] # Mes de Apertura
-        ).set_properties(
-            **{'font-weight': 'bold', 'text-align': 'right'},
-            subset=[df_display.columns[1]] # Saldo Capital Total
-        )
-
         st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (Fechas de Reporte)")
         
         # Renderizamos en Streamlit

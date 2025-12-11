@@ -418,22 +418,30 @@ with tab1:
 
             df_display_30150.iloc[:, 1] = df_display_30150.iloc[:, 1].apply(format_currency)
 
+            # ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
+            df_display_30150.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
+
             # --- CÁLCULO DE RESUMEN 30-150 ---
             
             saldo_col_raw = df_display_raw_30150['Saldo Capital Total (Monto)']
+            # CORRECCIÓN: rate_cols_raw debe ser extraída de df_display_raw_30150 *antes* de que se le agreguen filas de resumen
             rate_cols_raw = df_display_raw_30150.iloc[:, 2:]
             
             avg_row = pd.Series(index=df_display_30150.columns)
             max_row = pd.Series(index=df_display_30150.columns)
             min_row = pd.Series(index=df_display_30150.columns)
             
+            # Cálculo de Saldo Capital Total (Columna 1)
             avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
             max_row.iloc[1] = format_currency(saldo_col_raw.max())
             min_row.iloc[1] = format_currency(saldo_col_raw.min())
             
-            # El índice de las tasas ahora es correcto después de la eliminación de la columna
-            for i, col in enumerate(df_display_30150.columns[2:]):
+            # Cálculo de Tasas (Columnas 2 en adelante)
+            # USAMOS rate_cols_raw.columns.get_loc para el índice de tasa bruta y el índice de la fila de resumen
+            for i, col_name in enumerate(rate_cols_raw.columns):
+                # Usamos el índice de la columna en df_display_30150 (i + 2) para insertar el resultado
                 rate_values = rate_cols_raw.iloc[:, i]
+                
                 avg_row.iloc[i + 2] = format_percent(rate_values.mean())
                 max_row.iloc[i + 2] = format_percent(rate_values.max())
                 min_row.iloc[i + 2] = format_percent(rate_values.min())
@@ -445,9 +453,6 @@ with tab1:
             df_display_30150.loc['MÁXIMO'] = max_row
             df_display_30150.loc['MÍNIMO'] = min_row
             df_display_30150.loc['PROMEDIO'] = avg_row
-            
-            # ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
-            df_display_30150.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
             
             # APLICAR ESTILOS
             styler_30150 = style_table(df_display_30150)
@@ -509,18 +514,24 @@ with tab1:
             # --- CÁLCULO DE RESUMEN 8-90 ---
             
             saldo_col_raw = df_display_raw_890['Saldo Capital Total (Monto)']
-            rate_cols_raw = df_display_raw_890.iloc[:, 2:]
+            # CORRECCIÓN: rate_cols_raw debe ser extraída de df_display_raw_890 *antes* de que se le agreguen filas de resumen
+            rate_cols_raw_890 = df_display_raw_890.iloc[:, 2:]
             
             avg_row = pd.Series(index=df_display_890.columns)
             max_row = pd.Series(index=df_display_890.columns)
             min_row = pd.Series(index=df_display_890.columns)
             
+            # Cálculo de Saldo Capital Total (Columna 1)
             avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
             max_row.iloc[1] = format_currency(saldo_col_raw.max())
             min_row.iloc[1] = format_currency(saldo_col_raw.min())
             
-            for i, col in enumerate(df_display_890.columns[2:]):
-                rate_values = rate_cols_raw.iloc[:, i]
+            # Cálculo de Tasas (Columnas 2 en adelante)
+            # USAMOS rate_cols_raw_890.columns.get_loc para el índice de tasa bruta y el índice de la fila de resumen
+            for i, col_name in enumerate(rate_cols_raw_890.columns):
+                # Usamos el índice de la columna en df_display_890 (i + 2) para insertar el resultado
+                rate_values = rate_cols_raw_890.iloc[:, i]
+                
                 avg_row.iloc[i + 2] = format_percent(rate_values.mean())
                 max_row.iloc[i + 2] = format_percent(rate_values.max())
                 min_row.iloc[i + 2] = format_percent(rate_values.min())
@@ -545,8 +556,7 @@ with tab1:
         # 🚨 LÍNEA DE DIAGNÓSTICO: Muestra el error de Python en detalle
         st.error("¡Ha ocurrido un error inesperado al generar las tablas Vintage!")
         st.exception(e)
-
-
+        
 with tab2:
     # --- CONTENIDO DE LA PESTAÑA 2: CONFIGURACIÓN / PARÁMETROS ---
     st.header("⚙️ Valores de Segunda Cohorte (Mora 30-150)")
@@ -569,15 +579,19 @@ with tab2:
             
             # Asegurar que las columnas de tasa tienen el formato % para la visualización
             for col in df_cohort_display.columns[2:]:
-                df_cohort_display[col] = df_cohort_display[col].apply(lambda x: f'{x:,.2f}%')
+                # Necesitamos un try/except simple aquí si el valor no es un float antes de formatear
+                try:
+                    df_cohort_display[col] = df_cohort_display[col].apply(lambda x: f'{x:,.2f}%')
+                except TypeError:
+                     df_cohort_display[col] = df_cohort_display[col].astype(float).apply(lambda x: f'{x:,.2f}%')
 
 
             st.dataframe(df_cohort_display, hide_index=True)
             
-            st.markdown(f"**Cohorte Seleccionada:** {df_cohort_display.iloc[0]['Mes de Apertura']}")
+            st.markdown(f"**Cohorte Seleccionada:** {df_cohort_display.iloc[0]['Mes de Apertura'].iloc[0]}")
             
         else:
-            st.warning("No hay suficientes cohortes (se requieren al menos 2) para mostrar la Segunda Cohorte.")
+            st.warning("No hay suficientes cohortes (se requieren al menos 2) para mostrar la Segunda Cohorte con los filtros actuales.")
             
     else:
-        st.info("La tabla de Vintage debe ser cargada y filtrada en la pestaña 'Análisis Vintage' primero.")
+        st.info("La tabla de Vintage debe ser cargada y filtrada en la pestaña 'Análisis Vintage' primero, o la combinación de filtros no arrojó resultados.")

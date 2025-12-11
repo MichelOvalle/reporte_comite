@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from dateutil.relativedelta import relativedelta
 import matplotlib as mpl 
+import altair as alt # <-- LIBRERÍA AÑADIDA
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
 FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_automatizacion.xlsx'
@@ -561,18 +562,18 @@ with tab1:
         
 with tab2:
     # --- CONTENIDO DE LA PESTAÑA 2: CONFIGURACIÓN / PARÁMETROS ---
-    st.header("⚙️ Valores de Tasa de Mora (Segundo Punto Vintage)")
-    st.write("Esta tabla muestra el **Mes de Apertura** de cada cohorte y la tasa de mora solo para el **segundo punto vintage** (segunda columna de tasa de mora, o $C_2$), después de aplicar los filtros laterales (UEN/Origen).")
-
+    st.header("⚙️ Tasa de Mora (Segundo Punto Vintage, $C_2$)")
+    
     # Revisa si la variable df_display_raw_30150 fue generada y no está vacía
     if not df_display_raw_30150.empty:
-        # La segunda columna de tasa de mora está en el índice 3 del DataFrame bruto
+        # La columna de la segunda tasa de mora (C2) está en el índice 3 del DataFrame bruto
+        # (Índice 0: Mes de Apertura, Índice 1: Saldo Capital Total, Índice 2: C1, Índice 3: C2)
         target_column_index = 3
         
         # 1. Verificar si existe la columna requerida
         if len(df_display_raw_30150.columns) > target_column_index:
             
-            # Obtener el nombre de la columna en el índice 3
+            # Obtener el nombre de la columna de la tasa
             rate_column_name = df_display_raw_30150.columns[target_column_index]
             
             # 2. Seleccionar solo las columnas Mes de Apertura (Índice 0) y la columna de tasa requerida (Índice 3)
@@ -582,18 +583,37 @@ with tab2:
             new_col_name = f'Tasa Mora Vintage ({rate_column_name})'
             df_cohort_column.rename(columns={rate_column_name: new_col_name}, inplace=True)
             
-            # 3. Formatear la columna de Mes de Apertura a String
+            # 3. Preparar los datos para la gráfica (convertir tasa a float para Altair)
+            # Altair manejará el formato de porcentaje, pero necesita un float
+            df_chart_data = df_cohort_column.copy()
+            df_chart_data[new_col_name] = df_chart_data[new_col_name].astype(float)
+            
+            # --- 4. Generar Gráfica Altair ---
+            chart = alt.Chart(df_chart_data).mark_line(point=True).encode(
+                x=alt.X('Mes de Apertura', type='T', title='Mes de Apertura de la Cohorte'),
+                y=alt.Y(new_col_name, type='Q', title='Tasa de Mora (%)', axis=alt.Axis(format='.2f')),
+                tooltip=['Mes de Apertura', alt.Tooltip(new_col_name, format='.2f')]
+            ).properties(
+                title=f"Evolución de Tasa de Mora Vintage: {rate_column_name}"
+            ).interactive()
+            
+            st.altair_chart(chart, use_container_width=True)
+
+            # --- 5. Mostrar Tabla de Datos (Formato String) ---
+            st.markdown("### Datos Detallados")
+            
+            # Formatear la columna de Mes de Apertura a String para la tabla
             df_cohort_column['Mes de Apertura'] = df_cohort_column['Mes de Apertura'].dt.strftime('%Y-%m')
             
-            # 4. Formatear la columna de Tasa de Mora a porcentaje String
+            # Formatear la columna de Tasa de Mora a porcentaje String para la tabla
             for col in [new_col_name]:
-                # Aseguramos que los valores sean flotantes antes de formatear a porcentaje
-                df_cohort_column[col] = df_cohort_column[col].astype(float).apply(lambda x: f'{x:,.2f}%')
+                # Usamos los datos originales de float para formatear a string con %
+                df_cohort_column[col] = df_chart_data[col].apply(lambda x: f'{x:,.2f}%')
 
 
             st.dataframe(df_cohort_column, hide_index=True)
             
-            st.markdown(f"**Columna de Vintage Mostrada:** La tasa de mora de la cohorte correspondiente al periodo de reporte **{rate_column_name}**.")
+            st.markdown(f"**Punto Vintage Mostrado:** La tasa de mora de la cohorte correspondiente al periodo de reporte **{rate_column_name}**.")
             
         else:
             st.warning("El DataFrame de Vintage no tiene suficientes columnas (se requieren al menos 4) para mostrar la segunda columna de tasas de mora.")

@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from dateutil.relativedelta import relativedelta
+import matplotlib as mpl # Necesario para la paleta de colores estándar
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
 # 🚨 ¡IMPORTANTE! Revisa que esta ruta sea correcta en tu computadora
@@ -199,43 +200,73 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
 
 # --- FUNCIÓN DE ESTILIZADO DE DATAFRAME (FORMATO CONDICIONAL) ---
 
-def apply_heatmap_to_rates(df_display):
-    """
-    Aplica formato condicional (heatmap) fila por fila a las columnas de tasa.
-    Se pasa un DataFrame completamente numérico al background_gradient.
-    """
+# Función auxiliar para convertir strings de porcentaje a float para el gradiente
+def clean_cell_to_float(val):
+    if isinstance(val, str) and val.endswith('%'):
+        # Maneja la coma si estuviera presente, aunque format_percent usa solo punto decimal
+        try:
+            return float(val.replace('%', '').replace(',', ''))
+        except ValueError:
+            return np.nan 
+    return np.nan # Si es vacío ('') o no es un porcentaje válido, retorna NaN
+
+# Función que aplica el gradiente a una fila de tasas
+def apply_gradient_by_row(row):
+    """Aplica el gradiente a una Series (fila) de tasas."""
     
-    # Columnas que contienen las tasas de mora (a partir del índice 2)
+    # Creamos una copia de los valores numéricos de la fila
+    numeric_rates = row.apply(clean_cell_to_float).dropna()
+    
+    # Inicializar el estilo de la fila a vacío
+    styles = [''] * len(row)
+    
+    if len(numeric_rates) < 2:
+        # Necesitas al menos dos valores para una escala de gradiente.
+        return styles
+
+    # Generar la paleta de colores de Matplotlib (Rojo-Amarillo-Verde, Rojo=Alto/Malo)
+    cmap = mpl.cm.get_cmap('RdYlGn_r')
+    
+    v_min = numeric_rates.min()
+    v_max = numeric_rates.max()
+    
+    # Mapear los valores numéricos a colores RGB (0 a 1)
+    norm = mpl.colors.Normalize(v_min, v_max)
+    
+    for col_index, val in numeric_rates.items():
+        # Calcular el color (tupla RGBA)
+        rgba = cmap(norm(val))
+        
+        # Convertir RGBA a color hexadecimal (CSS)
+        # style_color = mpl.colors.to_hex(rgba, keep_alpha=False)
+        
+        # Usamos el color RGBA directamente, que es más seguro en entornos web
+        style_color = f'background-color: rgba({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)}, 1.0); text-align: center;'
+
+        # Encontrar la ubicación de la columna de tasa en la fila completa
+        col_loc = row.index.get_loc(col_index)
+        styles[col_loc] = style_color
+    
+    # Devolver el array completo de estilos CSS para la fila
+    return styles
+
+
+def style_table(df_display):
+    """Inicializa el Styler y aplica todos los formatos."""
+    
     tasa_cols = df_display.columns[2:].tolist()
-
-    # Función auxiliar para convertir strings de porcentaje a float para el gradiente
-    def clean_cell_to_float(val):
-        if isinstance(val, str) and val.endswith('%'):
-            try:
-                return float(val.replace('%', '').replace(',', ''))
-            except ValueError:
-                return np.nan # No pudo convertir, tratar como nulo
-        return np.nan # No es porcentaje/vacío, tratar como nulo
-
-    # 1. Creamos un DataFrame completamente numérico para la coloración.
-    # Los strings vacíos ('') se convierten a NaN, excluyéndolos del gradiente.
-    df_rates_numeric = df_display[tasa_cols].applymap(clean_cell_to_float)
-
-    # 2. Inicializamos el Styler con el DataFrame de strings formateados.
+    
     styler = df_display.style
     
-    # 3. Aplicar el gradiente (heatmap) fila por fila (axis=1).
-    # Como pasamos df_display.index y df_display.columns en el subset,
-    # Pandas intenta colorear sobre df_display, usando df_rates_numeric
-    # como los datos reales para el cálculo del color.
-    styler = styler.background_gradient(
-         cmap='RdYlGn_r', # Rojo-Amarillo-Verde, invertido (Rojo = Malo/Alto)
-         axis=1, # Aplicar por fila
-         subset=tasa_cols
+    # 1. Aplicar el gradiente fila por fila (HEATMAP)
+    # 🚨 Usamos .apply(axis=1) sobre las columnas de tasas para aplicar apply_gradient_by_row
+    styler = styler.apply(
+        apply_gradient_by_row, 
+        axis=1, 
+        subset=tasa_cols # Aplicamos la función solo a las columnas de tasas
     )
-    
-    # 4. Aplicar formato de texto general:
-    # Centrar tasas
+
+    # 2. Aplicar formato de texto general:
     styler = styler.set_properties(
         **{'text-align': 'center'},
         subset=tasa_cols 
@@ -359,8 +390,7 @@ try:
         
         
         # 3. APLICAR ESTILOS CON STYLER (Heatmap)
-        
-        styler = apply_heatmap_to_rates(df_display)
+        styler = style_table(df_display)
         
         st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (Fechas de Reporte)")
         

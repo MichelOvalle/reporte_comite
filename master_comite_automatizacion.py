@@ -195,7 +195,11 @@ def clean_cell_to_float(val):
             return float(val.replace('%', '').replace(',', ''))
         except ValueError:
             return np.nan 
-    return np.nan 
+    # Asegurarse de que los valores numéricos también sean tratados
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return np.nan 
 
 def apply_gradient_by_row(row):
     numeric_rates = row.iloc[2:].apply(clean_cell_to_float).dropna()
@@ -424,7 +428,7 @@ with tab1:
             # --- CÁLCULO DE RESUMEN 30-150 ---
             
             saldo_col_raw = df_display_raw_30150['Saldo Capital Total (Monto)']
-            # CORRECCIÓN: rate_cols_raw debe ser extraída de df_display_raw_30150 *antes* de que se le agreguen filas de resumen
+            # rate_cols_raw es la data bruta de las tasas (sin las dos primeras columnas)
             rate_cols_raw = df_display_raw_30150.iloc[:, 2:]
             
             avg_row = pd.Series(index=df_display_30150.columns)
@@ -437,7 +441,6 @@ with tab1:
             min_row.iloc[1] = format_currency(saldo_col_raw.min())
             
             # Cálculo de Tasas (Columnas 2 en adelante)
-            # USAMOS rate_cols_raw.columns.get_loc para el índice de tasa bruta y el índice de la fila de resumen
             for i, col_name in enumerate(rate_cols_raw.columns):
                 # Usamos el índice de la columna en df_display_30150 (i + 2) para insertar el resultado
                 rate_values = rate_cols_raw.iloc[:, i]
@@ -514,7 +517,7 @@ with tab1:
             # --- CÁLCULO DE RESUMEN 8-90 ---
             
             saldo_col_raw = df_display_raw_890['Saldo Capital Total (Monto)']
-            # CORRECCIÓN: rate_cols_raw debe ser extraída de df_display_raw_890 *antes* de que se le agreguen filas de resumen
+            # rate_cols_raw_890 es la data bruta de las tasas (sin las dos primeras columnas)
             rate_cols_raw_890 = df_display_raw_890.iloc[:, 2:]
             
             avg_row = pd.Series(index=df_display_890.columns)
@@ -527,7 +530,6 @@ with tab1:
             min_row.iloc[1] = format_currency(saldo_col_raw.min())
             
             # Cálculo de Tasas (Columnas 2 en adelante)
-            # USAMOS rate_cols_raw_890.columns.get_loc para el índice de tasa bruta y el índice de la fila de resumen
             for i, col_name in enumerate(rate_cols_raw_890.columns):
                 # Usamos el índice de la columna en df_display_890 (i + 2) para insertar el resultado
                 rate_values = rate_cols_raw_890.iloc[:, i]
@@ -559,42 +561,42 @@ with tab1:
         
 with tab2:
     # --- CONTENIDO DE LA PESTAÑA 2: CONFIGURACIÓN / PARÁMETROS ---
-    st.header("⚙️ Valores de Segunda Cohorte (Mora 30-150)")
-    st.write("Esta tabla muestra los valores de la tasa de mora para la **Segunda Cohorte** (`índice 1`) después de aplicar los filtros laterales (UEN/Origen).")
+    st.header("⚙️ Valores de Tasa de Mora (Segundo Punto Vintage)")
+    st.write("Esta tabla muestra el **Mes de Apertura** de cada cohorte y la tasa de mora solo para el **segundo punto vintage** (segunda columna de tasa de mora, o $C_2$), después de aplicar los filtros laterales (UEN/Origen).")
 
     # Revisa si la variable df_display_raw_30150 fue generada y no está vacía
     if not df_display_raw_30150.empty:
-        cohort_index = 1
+        # La segunda columna de tasa de mora está en el índice 3 del DataFrame bruto
+        target_column_index = 3
         
-        if len(df_display_raw_30150) > cohort_index:
+        # 1. Verificar si existe la columna requerida
+        if len(df_display_raw_30150.columns) > target_column_index:
             
-            # 1. Obtener la Series de la segunda fila (Segunda Cohorte)
-            cohort_series = df_display_raw_30150.iloc[cohort_index]
+            # Obtener el nombre de la columna en el índice 3
+            rate_column_name = df_display_raw_30150.columns[target_column_index]
             
-            # 2. Convertir la Series a un DataFrame de 1xN para que Streamlit lo muestre bien
-            df_cohort_display = cohort_series.to_frame().T
+            # 2. Seleccionar solo las columnas Mes de Apertura (Índice 0) y la columna de tasa requerida (Índice 3)
+            df_cohort_column = df_display_raw_30150.iloc[:, [0, target_column_index]].copy()
             
-            # 3. Formatear las columnas para mejor visualización
-            df_cohort_display.iloc[:, 1] = df_cohort_display.iloc[:, 1].apply(lambda x: f'{x:,.0f}')
+            # Renombrar para claridad
+            new_col_name = f'Tasa Mora Vintage ({rate_column_name})'
+            df_cohort_column.rename(columns={rate_column_name: new_col_name}, inplace=True)
             
-            # Asegurar que las columnas de tasa tienen el formato % para la visualización
-            for col in df_cohort_display.columns[2:]:
-                # Necesitamos un try/except simple aquí si el valor no es un float antes de formatear
-                try:
-                    df_cohort_display[col] = df_cohort_display[col].astype(float).apply(lambda x: f'{x:,.2f}%')
-                except TypeError:
-                     # Si ya es una cadena o algo no convertible, lo dejamos como está o mostramos un guion
-                     df_cohort_display[col] = df_cohort_display[col].apply(lambda x: x if isinstance(x, str) else "-")
+            # 3. Formatear la columna de Mes de Apertura a String
+            df_cohort_column['Mes de Apertura'] = df_cohort_column['Mes de Apertura'].dt.strftime('%Y-%m')
+            
+            # 4. Formatear la columna de Tasa de Mora a porcentaje String
+            for col in [new_col_name]:
+                # Aseguramos que los valores sean flotantes antes de formatear a porcentaje
+                df_cohort_column[col] = df_cohort_column[col].astype(float).apply(lambda x: f'{x:,.2f}%')
 
 
-            st.dataframe(df_cohort_display, hide_index=True)
+            st.dataframe(df_cohort_column, hide_index=True)
             
-            # CORRECCIÓN DE ERROR: Eliminamos el segundo .iloc[0] innecesario.
-            cohort_date_value = df_cohort_display.iloc[0]['Mes de Apertura']
-            st.markdown(f"**Cohorte Seleccionada:** {cohort_date_value}")
+            st.markdown(f"**Columna de Vintage Mostrada:** La tasa de mora de la cohorte correspondiente al periodo de reporte **{rate_column_name}**.")
             
         else:
-            st.warning("No hay suficientes cohortes (se requieren al menos 2) para mostrar la Segunda Cohorte con los filtros actuales.")
+            st.warning("El DataFrame de Vintage no tiene suficientes columnas (se requieren al menos 4) para mostrar la segunda columna de tasas de mora.")
             
     else:
         st.info("La tabla de Vintage debe ser cargada y filtrada en la pestaña 'Análisis Vintage' primero, o la combinación de filtros no arrojó resultados.")

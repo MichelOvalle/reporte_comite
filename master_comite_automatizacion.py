@@ -120,7 +120,7 @@ def load_and_transform_data(file_path):
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (¡CALCULA LA TASA DE MORA!) ---
+# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (¡CALCULA LA TASA DE MORA Y RENOMBRA!) ---
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
@@ -136,7 +136,6 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
                 'saldo_capital_total_c1': 'sum',
                 'capital_c1': 'sum'}
     
-    # Listas para manejar los pares de columnas C_n y Capital_C_n
     c_cols_mora = ['saldo_capital_total_c1']
     c_cols_capital = ['capital_c1']
 
@@ -156,15 +155,12 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # 3. Preparación y cálculo de la Tasa de Mora
     
-    # Asegurar que 'Mes de Apertura' es Datetime
     df_summary['Mes de Apertura'] = pd.to_datetime(df_summary[time_column])
     
-    # 🚨 CAMBIO CLAVE: Excluimos 'saldo_capital_total_30150' y 'saldo_capital_total_890'
     df_tasas = df_summary[['Mes de Apertura', 'saldo_capital_total']].copy()
     
     # Calcular las tasas C1 a C25
     for mora_col, capital_col in zip(c_cols_mora, c_cols_capital):
-        # Tasa = (Mora_Cn / Capital_Cn) * 100
         tasa = np.where(
             df_summary[capital_col] != 0,
             (df_summary[mora_col] / df_summary[capital_col]) * 100,
@@ -173,17 +169,34 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         df_tasas[mora_col] = tasa
         
     # 4. Renombrar columnas para la presentación
-    # La lista de nombres ahora tiene 2 columnas menos al inicio
+    
+    # Encontrar la fecha de reporte más reciente (MAX fecha_cierre) para renombrar las columnas C_n
+    max_fecha_cierre = df_filtered['fecha_cierre'].max()
+    
     column_names = ['Mes de Apertura', 'Saldo Capital Total (Monto)']
     
-    # Renombrar columnas de tasas C1 a C25
+    # Renombrar columnas de tasas C1 a C25 (Antigüedad 0 a 24)
     for n in range(1, 26):
-        column_names.append(f'Tasa Mora C{n} (Ant={n-1})')
+        antiguedad = n - 1 # C1 es Antigüedad 0, C2 es Antigüedad 1, etc.
+        
+        # Calcular la fecha de reporte: MAX_FECHA_CIERRE - (Antigüedad - 0) meses
+        # La fecha de reporte de la columna C_n es MAX_FECHA_CIERRE menos (n-1) meses.
+        # Por ejemplo, para C1 (n=1, Ant=0), la fecha es MAX_FECHA_CIERRE - 0 meses.
+        # Para C2 (n=2, Ant=1), la fecha es MAX_FECHA_CIERRE - 1 mes.
+        
+        # Usamos relativedelta para restar el número de meses (Antigüedad)
+        target_date = max_fecha_cierre - relativedelta(months=antiguedad)
+        
+        # Renombramos con el formato de fecha AAAA-MM
+        date_label = target_date.strftime('%Y-%m')
+        
+        column_names.append(f'{date_label}') # El nombre de la columna es la fecha de cierre
     
     df_tasas.columns = column_names
     
-    # 5. Ordenar por fecha de cohorte (más reciente primero)
-    df_tasas = df_tasas.sort_values('Mes de Apertura', ascending=False)
+    # 5. Ordenar por fecha de cohorte (ASCENDENTE: más antiguo primero)
+    # 🚨 CAMBIO CLAVE: Cambiamos ascending=False a ascending=True
+    df_tasas = df_tasas.sort_values('Mes de Apertura', ascending=True)
     
     return df_tasas
 
@@ -264,7 +277,7 @@ try:
     df_tasas_mora = calculate_saldo_consolidado(df_filtered) 
 
     if not df_tasas_mora.empty:
-        # Formato de la Fecha 
+        # Formato de la Fecha (para la cohorte de apertura)
         df_tasas_mora['Mes de Apertura'] = df_tasas_mora['Mes de Apertura'].dt.strftime('%Y-%m')
 
         # Formato de moneda para los montos y porcentaje para las tasas
@@ -273,17 +286,14 @@ try:
         def format_percent(val):
             return f'{val:,.2f}%'
 
-        st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (C1 a C25)")
+        st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (Fechas de Reporte)")
         
         df_display = df_tasas_mora.copy()
         
         # Aplicar formato: Monto solo a la segunda columna (índice 1: Saldo Capital Total)
-        # 🚨 CAMBIO CLAVE: Solo la columna 1 (índice 1) es monto.
-        
-        # Montos (Columna 1: Saldo Capital Total (Monto))
         df_display.iloc[:, 1] = df_display.iloc[:, 1].apply(format_currency)
             
-        # Tasas (Columnas 2 en adelante: Tasa Mora C1 a C25)
+        # Tasas (Columnas 2 en adelante: Tasas C1 a C25)
         for col in df_display.columns[2:]:
             df_display[col] = df_display[col].apply(format_percent)
             

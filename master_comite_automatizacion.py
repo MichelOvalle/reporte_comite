@@ -255,8 +255,6 @@ def style_table(df_display):
     
     styler = df_display.style
     
-    # El estilo de encabezado se aplica globalmente con CSS inyectado.
-    
     # 1. Aplicar el gradiente fila por fila (HEATMAP)
     styler = styler.apply(
         apply_gradient_by_row, 
@@ -278,7 +276,7 @@ def style_table(df_display):
         subset=[df_display.columns[1]] 
     )
     
-    # 3. Estilo para las Filas de Promedios, Máx y Mín
+    # 3. Estilo para las Filas de Resumen
     def highlight_summary_rows(row):
         is_avg = (row.name == 'PROMEDIO')
         is_max = (row.name == 'MÁXIMO')
@@ -303,7 +301,7 @@ df_master = load_and_transform_data(FILE_PATH)
 st.set_page_config(layout="wide")
 
 # 🚨 SOLUCIÓN PARA EL ENCABEZADO: INYECTAR CSS GLOBALMENTE
-# Este CSS debería anular el estilo nativo de Streamlit para la tabla de datos.
+# (Mantenemos esta inyección para la compatibilidad del estilo de encabezado)
 HEADER_CSS = """
 <style>
 /* Selector para el contenedor de la tabla de datos de Streamlit */
@@ -325,7 +323,8 @@ div.stDataFrame {
 </style>
 """
 st.markdown(HEADER_CSS, unsafe_allow_html=True)
-st.title("📊 Tasa de Mora por Cohorte (Análisis Vintage)")
+# CAMBIO 1: Título Principal
+st.title("📊 Análisis Vintage")
 
 if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
@@ -379,7 +378,8 @@ if df_filtered.empty:
 
 # --- VISUALIZACIÓN PRINCIPAL: TABLA DE TASAS DE MORA (VINTAGE) ---
 
-st.header("1. Matriz de Mora 30-150 por Cohorte (Vintage)")
+# CAMBIO 2: Título de la Sección
+st.header("1. Vintage Mora 30-150")
 
 try:
     # Calcular la Tabla Consolidada y las Tasas
@@ -424,7 +424,7 @@ try:
         # Formatear la columna de Saldo Capital Total (Monto)
         df_display.iloc[:, 1] = df_display.iloc[:, 1].apply(format_currency)
         
-        # --- CALCULAR Y AÑADIR LAS FILAS DE RESUMEN (PROMEDIO, MÁXIMO, MÍNIMO) ---
+        # --- CALCULAR Y AÑADIR LAS FILAS DE RESUMEN (MÁXIMO, MÍNIMO, PROMEDIO) ---
         
         # Crear filas de resumen como Series
         avg_row = pd.Series(index=df_display.columns)
@@ -444,11 +444,6 @@ try:
         for i, col in enumerate(tasa_cols):
             rate_values = rate_cols_raw.iloc[:, i]
             
-            # Máximo/Mínimo/Promedio de las tasas (Ignorando NaNs si los hubiera, pero aquí son 0.00%s)
-            
-            # Se usa np.where para asegurar que si hay NaNs, se manejen correctamente,
-            # pero dado que las tasas de mora se calculan como float (0.00%), se usa .agg
-            
             avg_rate = rate_values.mean()
             max_rate = rate_values.max()
             min_rate = rate_values.min()
@@ -463,6 +458,7 @@ try:
         min_row.iloc[0] = 'MÍNIMO'
         
         # Añadir las filas al DataFrame de visualización
+        # El orden aquí dicta el orden en la tabla
         df_display.loc['MÁXIMO'] = max_row
         df_display.loc['MÍNIMO'] = min_row
         df_display.loc['PROMEDIO'] = avg_row
@@ -471,7 +467,8 @@ try:
         # 4. APLICAR ESTILOS CON STYLER
         styler = style_table(df_display)
         
-        st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (Fechas de Reporte)")
+        # CAMBIO 3: Eliminamos el st.subheader
+        # st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (Fechas de Reporte)")
         
         # Renderizamos en Streamlit
         st.dataframe(styler, hide_index=True)

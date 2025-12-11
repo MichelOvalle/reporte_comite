@@ -255,9 +255,8 @@ def style_table(df_display):
     
     styler = df_display.style
     
-    # 🚨 1. ESTILOS PARA LOS ENCABEZADOS (TÍTULOS) - USO DE SELECTOR MÁS AGRESIVO
-    # Apuntamos a todos los encabezados (th) y aplicamos el estilo con !important 
-    # para intentar sobrescribir el estilo de Streamlit.
+    # 🚨 1. ESTILOS PARA LOS ENCABEZADOS (TÍTULOS) - USO DE !important Y SELECTOR 'th'
+    # Intentamos sobrescribir el estilo de Streamlit con mayor fuerza.
     styler = styler.set_table_styles([
         {'selector': 'th', 
          'props': [('background-color', '#ADD8E6 !important'), 

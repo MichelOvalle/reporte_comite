@@ -5,7 +5,6 @@ from dateutil.relativedelta import relativedelta
 import matplotlib as mpl 
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
-# 🚨 ¡IMPORTANTE! Revisa que esta ruta sea correcta en tu computadora
 FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_automatizacion.xlsx'
 SHEET_MASTER = 'master_comite_automatizacion'
 SHEET_EJERCICIO = 'ejercicio'
@@ -15,14 +14,11 @@ SHEET_EJERCICIO = 'ejercicio'
 def load_and_transform_data(file_path):
     """Carga los datos y aplica las transformaciones necesarias, incluyendo las columnas C1 a C25, CAPITAL_C1 a CAPITAL_C25 y las nuevas 890_C1 a 890_C25."""
     try:
-        # 1.1 Importación
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
         
-        # Dependencias de mora y mapeo
         buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
         buckets_mora_08_90 = ["008-030", "031-060", "061-090"]
 
-        # Conversiones de tipo (Corrección de fecha robusta)
         def convert_mes_apertura(value):
             if pd.isna(value) or value in ['nan', 'NaN', '']:
                 return pd.NaT
@@ -40,32 +36,24 @@ def load_and_transform_data(file_path):
         df_master['fecha_cierre'] = pd.to_datetime(df_master['fecha_cierre'], errors='coerce')
 
         # W: Mes_BperturB (FIN.MES)
-        df_master['Mes_BperturB'] = df_master['mes_apertura'] + pd.offsets.MonthEnd(0)
+        # Aseguramos que Mes_BperturB sea el día 1 del mes para una comparación limpia
+        df_master['Mes_BperturB'] = df_master['mes_apertura'].dt.normalize().dt.to_period('M').dt.to_timestamp()
         
-        # Bandera: Mora_30-150
         df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
-        
-        # Bandera: Mora_08-90
         df_master['Mora_08-90'] = np.where(df_master['bucket'].isin(buckets_mora_08_90), 'Sí', 'No')
 
-        # AP: PR_Origen_Limpio
         digital_origenes = ["Promotor Digital", "Chatbot"]
         df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
 
-        # --- CÁLCULO DE DIFERENCIA DE MESES (Antigüedad) ---
-        
-        # Función para calcular la diferencia de meses (fecha_cierre - Mes_BperturB)
         def get_month_diff(date1, date2):
             if pd.isna(date1) or pd.isna(date2):
                 return np.nan
-            # Resta date1 (Mes_BperturB) de date2 (fecha_cierre)
             return (date2.year - date1.year) * 12 + (date2.month - date1.month)
 
         df_master['dif_mes'] = df_master.apply(
             lambda row: get_month_diff(row['Mes_BperturB'], row['fecha_cierre']), axis=1
         )
 
-        # --- COLUMNAS DE SALDO CONDICIONAL ---
         df_master['saldo_capital_total_30150'] = np.where(
             df_master['Mora_30-150'] == 'Sí',
             df_master['saldo_capital_total'],
@@ -81,7 +69,7 @@ def load_and_transform_data(file_path):
         
         # --- COLUMNAS DE SEGUIMIENTO DE MORA 30-150 (C1 a C25) ---
         
-        # C1 (Mes de Antigüedad 0) de 30-150: APLICAMOS LÓGICA DE DIF_MES=0 (Cambiado)
+        # C1 (Mes de Antigüedad 0): APLICAMOS LÓGICA DE DIF_MES=0 (Cambiado)
         df_master['saldo_capital_total_c1'] = np.where(
             df_master['dif_mes'] == 0,
             df_master['saldo_capital_total_30150'], 
@@ -100,7 +88,6 @@ def load_and_transform_data(file_path):
 
         # --- NUEVAS COLUMNAS DE SEGUIMIENTO DE MORA 8-90 (890_C1 a 890_C25) ---
         
-        # C1: SI(dif_meses = 0, saldo_capital_total_890, 0) (Lógica ya estaba correcta)
         df_master['saldo_capital_total_890_c1'] = np.where(
             df_master['dif_mes'] == 0,
             df_master['saldo_capital_total_890'],
@@ -111,7 +98,6 @@ def load_and_transform_data(file_path):
             col_index = n + 1 
             col_name = f'saldo_capital_total_890_c{col_index}'
             
-            # Lógica: SI(dif_meses = n, saldo_capital_total_890, 0)
             df_master[col_name] = np.where(
                 df_master['dif_mes'] == n,
                 df_master['saldo_capital_total_890'], 
@@ -120,7 +106,6 @@ def load_and_transform_data(file_path):
 
         # --- COLUMNAS DE CAPITAL (CAPITAL_C1 a CAPITAL_C25) ---
         
-        # C1 (Mes de Antigüedad 0) de Capital
         df_master['capital_c1'] = np.where(
             df_master['dif_mes'] == 0,
             df_master['saldo_capital_total'],
@@ -147,47 +132,26 @@ def load_and_transform_data(file_path):
 # --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (¡CALCULA LA TASA DE MORA!) ---
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
-    # Excluir NaT antes de procesar
     df_filtered = df.dropna(subset=[time_column]).copy()
     
     if df_filtered.empty:
         return pd.DataFrame()
 
-    # 1. Definir columnas a sumar (Mora y Capital)
     agg_dict = {'saldo_capital_total': 'sum'}
     
-    # Listas para manejar los nombres de columnas
-    c_cols_mora_30150 = []
-    c_cols_mora_890 = []
-    c_cols_capital = []
-
     for n in range(1, 26):
-        mora_col_30150 = f'saldo_capital_total_c{n}'
-        mora_col_890 = f'saldo_capital_total_890_c{n}' 
-        capital_col = f'capital_c{n}'
-        
-        agg_dict[mora_col_30150] = 'sum'
-        agg_dict[mora_col_890] = 'sum'
-        agg_dict[capital_col] = 'sum'
-        
-        c_cols_mora_30150.append(mora_col_30150)
-        c_cols_mora_890.append(mora_col_890)
-        c_cols_capital.append(capital_col)
+        agg_dict[f'saldo_capital_total_c{n}'] = 'sum'
+        agg_dict[f'saldo_capital_total_890_c{n}'] = 'sum'
+        agg_dict[f'capital_c{n}'] = 'sum'
 
-    # 2. Agrupar y sumar todas las columnas
     df_summary = df_filtered.groupby(time_column).agg(agg_dict).reset_index()
     
-    # 3. Preparación y cálculo de la Tasa de Mora
+    # Normalizar Mes de Apertura a Datetime limpio
+    df_summary['Mes de Apertura'] = pd.to_datetime(df_summary[time_column].dt.strftime('%Y-%m') + '-01')
     
-    df_summary['Mes de Apertura'] = pd.to_datetime(df_summary[time_column])
-    
-    # Inicializamos el DataFrame de tasas con solo la cohorte y el saldo total
     df_tasas = df_summary[['Mes de Apertura', 'saldo_capital_total']].copy()
     
-    # Encontrar la fecha de reporte más reciente (MAX fecha_cierre)
     max_fecha_cierre = df_filtered['fecha_cierre'].max()
-    
-    # 4. Calcular y nombrar las columnas de tasas (usando nombres de reporte temporales)
     
     for n in range(1, 26):
         antiguedad = n - 1 
@@ -216,10 +180,8 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         col_name_890 = f'{date_label} (8-90)'
         df_tasas[col_name_890] = tasa_890
 
-    # 5. Ordenar por fecha de cohorte (ASCENDENTE: más antiguo primero)
     df_tasas = df_tasas.sort_values('Mes de Apertura', ascending=True)
     
-    # 6. Renombrar la columna de Saldo Capital
     df_tasas.rename(columns={'saldo_capital_total': 'Saldo Capital Total (Monto)'}, inplace=True)
 
     return df_tasas
@@ -227,7 +189,6 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
 
 # --- FUNCIÓN DE ESTILIZADO DE DATAFRAME (FORMATO CONDICIONAL) ---
 
-# Función auxiliar para convertir strings de porcentaje a float para el gradiente
 def clean_cell_to_float(val):
     if isinstance(val, str) and val.endswith('%'):
         try:
@@ -236,27 +197,19 @@ def clean_cell_to_float(val):
             return np.nan 
     return np.nan 
 
-# Función que aplica el gradiente a una fila de tasas
 def apply_gradient_by_row(row):
-    """Aplica el gradiente a una Series (fila) de tasas, usando mapeo CSS."""
-    
-    # Excluir Mes de Apertura y Saldo Capital Total (primeras dos columnas)
     numeric_rates = row.iloc[2:].apply(clean_cell_to_float).dropna()
-    
     styles = [''] * len(row)
-    
     if len(numeric_rates) < 2:
         return styles
 
     cmap = mpl.cm.get_cmap('RdYlGn_r')
-    
     v_min = numeric_rates.min()
     v_max = numeric_rates.max()
     
     if v_min == v_max:
         color_rgb = cmap(0.5)
         neutral_style = f'background-color: rgba({int(color_rgb[0]*255)}, {int(color_rgb[1]*255)}, {int(color_rgb[2]*255)}, 0.5); text-align: center;'
-        
         for col_name in numeric_rates.index:
             col_loc = row.index.get_loc(col_name)
             styles[col_loc] = neutral_style
@@ -266,52 +219,40 @@ def apply_gradient_by_row(row):
     
     for col_index, val in numeric_rates.items():
         rgba = cmap(norm(val))
-        
         style_color = f'background-color: rgba({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)}, 1.0); text-align: center;'
-
         col_loc = row.index.get_loc(col_index)
         styles[col_loc] = style_color
-    
     return styles
 
 
 def style_table(df_display):
-    """Inicializa el Styler y aplica todos los formatos."""
-    
     tasa_cols = df_display.columns[2:].tolist()
-    
     styler = df_display.style
     
-    # 1. Aplicar el gradiente fila por fila (HEATMAP)
     styler = styler.apply(
         apply_gradient_by_row, 
         axis=1, 
         subset=df_display.columns
     )
 
-    # 2. Aplicar formato de texto y negritas a las celdas de datos
     styler = styler.set_properties(
         **{'text-align': 'center'},
         subset=tasa_cols 
     ).set_properties(
-        # Negrita y alineación para Mes de Apertura (Columna 0)
         **{'font-weight': 'bold', 'text-align': 'left'},
         subset=[df_display.columns[0]] 
     ).set_properties(
-        # Negrita y alineación para Saldo Capital Total (Columna 1)
         **{'font-weight': 'bold', 'text-align': 'right'},
         subset=[df_display.columns[1]] 
     )
     
-    # 3. Estilo para las Filas de Resumen
     def highlight_summary_rows(row):
         is_avg = (row.name == 'PROMEDIO')
         is_max = (row.name == 'MÁXIMO')
         is_min = (row.name == 'MÍNIMO')
         
         if is_avg or is_max or is_min:
-            # Color gris claro para Máximo/Mínimo
-            color = '#F0F0F0' if is_max or is_min else '#E6F3FF' # Azul claro para Promedio
+            color = '#F0F0F0' if is_max or is_min else '#E6F3FF'
             return [f'font-weight: bold; background-color: {color};'] * len(row) 
         return [''] * len(row)
 
@@ -436,8 +377,10 @@ try:
         tasa_cols_30150 = df_display_30150.columns[2:]
 
         for index, row in df_display_30150.iterrows():
-            cohort_date = row['Mes de Apertura']
-            df_display_30150.loc[index, 'Mes de Apertura'] = cohort_date.strftime('%Y-%m') # Formatear fecha de cohorte
+            cohort_date = row['Mes de Apertura'].normalize() # Usamos la fecha limpia para la comparación
+            
+            # Formatear la fecha de cohorte a string para la visualización
+            df_display_30150.loc[index, 'Mes de Apertura'] = cohort_date.strftime('%Y-%m') 
             
             for col in tasa_cols_30150:
                 col_date_str = col.split(' ')[0] 
@@ -447,11 +390,11 @@ try:
                 except:
                     continue
 
-                # 🚨 LÓGICA DE CORTE ACTUALIZADA: Si la fecha de reporte es menor a la de cohorte, es vacío.
+                # 🚨 LÓGICA DE CORTE: Si la fecha de reporte es estrictamente menor a la de cohorte, es vacío.
                 if col_date < cohort_date: 
                     df_display_30150.loc[index, col] = '' 
                 else:
-                    # Usar el valor numérico (row[col]) de df_display_raw_30150
+                    # Si es igual o mayor (Antigüedad 0 o más), mostramos el valor numérico formateado.
                     df_display_30150.loc[index, col] = format_percent(row[col])
 
         df_display_30150.iloc[:, 1] = df_display_30150.iloc[:, 1].apply(format_currency)
@@ -510,7 +453,7 @@ try:
         tasa_cols_890 = df_display_890.columns[2:]
 
         for index, row in df_display_890.iterrows():
-            cohort_date = row['Mes de Apertura']
+            cohort_date = row['Mes de Apertura'].normalize() # Usamos la fecha limpia para la comparación
             
             # Formatear la fecha de cohorte a string para la visualización
             df_display_890.loc[index, 'Mes de Apertura'] = cohort_date.strftime('%Y-%m')
@@ -523,11 +466,10 @@ try:
                 except:
                     continue
 
-                # 🚨 LÓGICA DE CORTE ACTUALIZADA: Si la fecha de reporte es menor a la de cohorte, es vacío.
+                # 🚨 LÓGICA DE CORTE: Si la fecha de reporte es estrictamente menor a la de cohorte, es vacío.
                 if col_date < cohort_date: 
                     df_display_890.loc[index, col] = '' 
                 else:
-                    # Usar el valor numérico (row[col]) de df_display_raw_890
                     df_display_890.loc[index, col] = format_percent(row[col])
 
         df_display_890.iloc[:, 1] = df_display_890.iloc[:, 1].apply(format_currency)

@@ -139,101 +139,76 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         return pd.DataFrame()
 
     # 1. Definir columnas a sumar (Mora y Capital)
-    agg_dict = {'saldo_capital_total': 'sum',
-                'saldo_capital_total_30150': 'sum',
-                'saldo_capital_total_890': 'sum',
-                'saldo_capital_total_c1': 'sum',
-                'capital_c1': 'sum'}
+    agg_dict = {'saldo_capital_total': 'sum'}
     
-    # Listas para manejar los pares de columnas C_n y Capital_C_n
-    c_cols_mora_30150 = ['saldo_capital_total_c1']
-    c_cols_mora_890 = ['saldo_capital_total_890_c1'] # Nueva lista para 890
-    c_cols_capital = ['capital_c1']
+    # Listas para manejar los nombres de columnas
+    c_cols_mora_30150 = []
+    c_cols_mora_890 = []
+    c_cols_capital = []
 
-    for n in range(1, 25):
-        col_index = n + 1
-        
-        mora_col_30150 = f'saldo_capital_total_c{col_index}'
-        mora_col_890 = f'saldo_capital_total_890_c{col_index}' # Nueva columna 890
-        capital_col = f'capital_c{col_index}'
+    for n in range(1, 26):
+        mora_col_30150 = f'saldo_capital_total_c{n}'
+        mora_col_890 = f'saldo_capital_total_890_c{n}' 
+        capital_col = f'capital_c{n}'
         
         agg_dict[mora_col_30150] = 'sum'
-        agg_dict[mora_col_890] = 'sum' # Agregar al diccionario de agregación
+        agg_dict[mora_col_890] = 'sum'
         agg_dict[capital_col] = 'sum'
         
         c_cols_mora_30150.append(mora_col_30150)
-        c_cols_mora_890.append(mora_col_890) # Agregar a la lista de columnas 890
+        c_cols_mora_890.append(mora_col_890)
         c_cols_capital.append(capital_col)
 
     # 2. Agrupar y sumar todas las columnas
     df_summary = df_filtered.groupby(time_column).agg(agg_dict).reset_index()
     
-    # 3. Preparación y cálculo de la Tasa de Mora
+    # 3. Preparación y cálculo de la Tasa de Mora (¡REFACTORIZADO!)
     
     df_summary['Mes de Apertura'] = pd.to_datetime(df_summary[time_column])
     
-    # Creamos el DataFrame de tasas con las columnas de saldos base (solo Saldo Capital Total)
+    # Inicializamos el DataFrame de tasas con solo la cohorte y el saldo total
     df_tasas = df_summary[['Mes de Apertura', 'saldo_capital_total']].copy()
     
-    # Calcular las tasas C1 a C25 para 30-150 (Vintage principal)
-    for mora_col, capital_col in zip(c_cols_mora_30150, c_cols_capital):
-        tasa = np.where(
-            df_summary[capital_col] != 0,
-            (df_summary[mora_col] / df_summary[capital_col]) * 100,
-            0
-        )
-        df_tasas[mora_col] = tasa
-        
-    # --- CALCULAR LAS NUEVAS TASAS C1 a C25 para 8-90 ---
-    for mora_col, capital_col in zip(c_cols_mora_890, c_cols_capital):
-        tasa = np.where(
-            df_summary[capital_col] != 0,
-            (df_summary[mora_col] / df_summary[capital_col]) * 100,
-            0
-        )
-        df_tasas[mora_col] = tasa # Se añaden con el nombre de columna base (ej: saldo_capital_total_890_c2)
-
-    # 4. Renombrar columnas para la presentación
-    
+    # Encontrar la fecha de reporte más reciente (MAX fecha_cierre)
     max_fecha_cierre = df_filtered['fecha_cierre'].max()
     
-    column_names = ['Mes de Apertura', 'Saldo Capital Total (Monto)']
-    
-    # Renombrar columnas de tasas 30-150 (Vintage principal)
-    for n in range(1, 26):
-        antiguedad = n - 1 
-        target_date = max_fecha_cierre - relativedelta(months=antiguedad)
-        date_label = target_date.strftime('%Y-%m')
-        
-        # Guardamos los nombres originales de las columnas de mora para referencia
-        col_mora_30150_orig = f'saldo_capital_total_c{n}'
-        col_mora_890_orig = f'saldo_capital_total_890_c{n}'
-        
-        # Renombre de la columna en df_tasas
-        df_tasas.rename(columns={col_mora_30150_orig: f'{date_label} (30-150)'}, inplace=True)
-        df_tasas.rename(columns={col_mora_890_orig: f'{date_label} (8-90)'}, inplace=True)
-        
-        # Añadir al listado de nombres (el orden es importante para el subset)
-        column_names.append(f'{date_label} (30-150)') 
-        column_names.append(f'{date_label} (8-90)') 
-
-    # Asignar los nuevos nombres a las columnas (esto debe hacerse antes del paso 5)
-    # Creamos un nuevo DataFrame con el orden deseado para la visualización
-    
-    # Las primeras 2 columnas son fijas, luego vienen los pares (30-150, 8-90)
+    # 4. Calcular y nombrar las columnas de tasas
     final_cols_order = ['Mes de Apertura', 'Saldo Capital Total (Monto)']
     
     for n in range(1, 26):
         antiguedad = n - 1 
         target_date = max_fecha_cierre - relativedelta(months=antiguedad)
         date_label = target_date.strftime('%Y-%m')
-        final_cols_order.append(f'{date_label} (30-150)')
-        final_cols_order.append(f'{date_label} (8-90)')
         
+        mora_30150_col_orig = f'saldo_capital_total_c{n}'
+        mora_890_col_orig = f'saldo_capital_total_890_c{n}'
+        capital_col_orig = f'capital_c{n}'
+        
+        # Tasa 30-150
+        tasa_30150 = np.where(
+            df_summary[capital_col_orig] != 0,
+            (df_summary[mora_30150_col_orig] / df_summary[capital_col_orig]) * 100,
+            0
+        )
+        col_name_30150 = f'{date_label} (30-150)'
+        df_tasas[col_name_30150] = tasa_30150
+        final_cols_order.append(col_name_30150)
+
+        # Tasa 8-90
+        tasa_890 = np.where(
+            df_summary[capital_col_orig] != 0,
+            (df_summary[mora_890_col_orig] / df_summary[capital_col_orig]) * 100,
+            0
+        )
+        col_name_890 = f'{date_label} (8-90)'
+        df_tasas[col_name_890] = tasa_890
+        final_cols_order.append(col_name_890)
+
+    # 5. Aplicar el orden final y renombrar las primeras columnas
     df_tasas = df_tasas[final_cols_order]
-
-
-    # 5. Ordenar por fecha de cohorte (ASCENDENTE: más antiguo primero)
+    df_tasas.rename(columns={'saldo_capital_total': 'Saldo Capital Total (Monto)'}, inplace=True)
+    
+    # 6. Ordenar por fecha de cohorte (ASCENDENTE: más antiguo primero)
     df_tasas = df_tasas.sort_values('Mes de Apertura', ascending=True)
     
     return df_tasas
@@ -292,7 +267,6 @@ def apply_gradient_by_row(row):
 def style_table(df_display):
     """Inicializa el Styler y aplica todos los formatos."""
     
-    # Las columnas de tasas comienzan en el índice 2
     tasa_cols = df_display.columns[2:].tolist()
     
     styler = df_display.style
@@ -360,7 +334,7 @@ div.stDataFrame {
 </style>
 """
 st.markdown(HEADER_CSS, unsafe_allow_html=True)
-st.title("📊 Análisis Vintage") # Título Principal
+st.title("📊 Análisis Vintage")
 
 if df_master.empty:
     st.error("No se pudo cargar y procesar el DataFrame maestro.")
@@ -414,7 +388,6 @@ if df_filtered.empty:
 
 # --- VISUALIZACIÓN PRINCIPAL: TABLA DE TASAS DE MORA (VINTAGE) ---
 
-# Título de la Sección
 st.header("1. Vintage Mora 30-150")
 
 try:
@@ -434,8 +407,7 @@ try:
         
         # 2. Aplicar la lógica de corte (Mes de Apertura > Mes de Columna) y formato de string
         df_display = df_display_raw.copy()
-        # Las columnas de tasas ahora alternan (30-150, 8-90), pero empiezan en índice 2
-        tasa_cols = df_display.columns[2:] 
+        tasa_cols = df_display.columns[2:]
 
         for index, row in df_display.iterrows():
             cohort_date_str = row['Mes de Apertura']
@@ -458,7 +430,7 @@ try:
                     # Corte: Asignamos string vacío
                     df_display.loc[index, col] = '' 
                 else:
-                    # Aplicamos formato de porcentaje (el valor ya está en df_display)
+                    # Aplicamos formato de porcentaje
                     df_display.loc[index, col] = format_percent(row[col])
 
         # Formatear la columna de Saldo Capital Total (Monto)

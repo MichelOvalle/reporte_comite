@@ -81,6 +81,7 @@ def load_and_transform_data(file_path):
         
         # --- COLUMNAS DE SEGUIMIENTO DE MORA 30-150 (C1 a C25) ---
         
+        # C1 (Mes de Antigüedad 0) de 30-150 se queda en 0 por convención de Vintage
         df_master['saldo_capital_total_c1'] = 0 
         
         for n in range(1, 25):
@@ -95,7 +96,12 @@ def load_and_transform_data(file_path):
 
         # --- NUEVAS COLUMNAS DE SEGUIMIENTO DE MORA 8-90 (890_C1 a 890_C25) ---
         
-        df_master['saldo_capital_total_890_c1'] = 0 
+        # 🚨 Lógica Actualizada para C1: SI(dif_meses = 0, saldo_capital_total_890, 0)
+        df_master['saldo_capital_total_890_c1'] = np.where(
+            df_master['dif_mes'] == 0,
+            df_master['saldo_capital_total_890'],
+            0
+        )
         
         for n in range(1, 25):
             col_index = n + 1 
@@ -110,7 +116,12 @@ def load_and_transform_data(file_path):
 
         # --- COLUMNAS DE CAPITAL (CAPITAL_C1 a CAPITAL_C25) ---
         
-        df_master['capital_c1'] = 0
+        # C1 (Mes de Antigüedad 0) de Capital
+        df_master['capital_c1'] = np.where(
+            df_master['dif_mes'] == 0,
+            df_master['saldo_capital_total'],
+            0
+        )
 
         for n in range(1, 25):
             col_index = n + 1 
@@ -495,10 +506,6 @@ try:
 
         for index, row in df_display_890.iterrows():
             cohort_date = row['Mes de Apertura']
-            # La columna 'Mes de Apertura' ya fue formateada a string en el paso anterior, 
-            # pero aquí necesitamos el valor Datetime original para la comparación. 
-            # Como df_display_raw_890 es una copia de df_tasas_mora_full (cuyas columnas de fecha no se modificaron),
-            # usamos el valor de la columna 'Mes de Apertura' para la comparación.
             
             # Formatear la fecha de cohorte a string para la visualización
             df_display_890.loc[index, 'Mes de Apertura'] = cohort_date.strftime('%Y-%m')

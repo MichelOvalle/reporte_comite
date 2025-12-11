@@ -162,7 +162,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     # 2. Agrupar y sumar todas las columnas
     df_summary = df_filtered.groupby(time_column).agg(agg_dict).reset_index()
     
-    # 3. Preparación y cálculo de la Tasa de Mora (¡REFACTORIZADO!)
+    # 3. Preparación y cálculo de la Tasa de Mora
     
     df_summary['Mes de Apertura'] = pd.to_datetime(df_summary[time_column])
     
@@ -172,8 +172,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     # Encontrar la fecha de reporte más reciente (MAX fecha_cierre)
     max_fecha_cierre = df_filtered['fecha_cierre'].max()
     
-    # 4. Calcular y nombrar las columnas de tasas
-    final_cols_order = ['Mes de Apertura', 'Saldo Capital Total (Monto)']
+    # 4. Calcular y nombrar las columnas de tasas (usando nombres de reporte temporales)
     
     for n in range(1, 26):
         antiguedad = n - 1 
@@ -192,7 +191,6 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         )
         col_name_30150 = f'{date_label} (30-150)'
         df_tasas[col_name_30150] = tasa_30150
-        final_cols_order.append(col_name_30150)
 
         # Tasa 8-90
         tasa_890 = np.where(
@@ -202,15 +200,14 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
         )
         col_name_890 = f'{date_label} (8-90)'
         df_tasas[col_name_890] = tasa_890
-        final_cols_order.append(col_name_890)
 
-    # 5. Aplicar el orden final y renombrar las primeras columnas
-    df_tasas = df_tasas[final_cols_order]
-    df_tasas.rename(columns={'saldo_capital_total': 'Saldo Capital Total (Monto)'}, inplace=True)
-    
-    # 6. Ordenar por fecha de cohorte (ASCENDENTE: más antiguo primero)
+    # 5. Ordenar por fecha de cohorte (ASCENDENTE: más antiguo primero)
     df_tasas = df_tasas.sort_values('Mes de Apertura', ascending=True)
     
+    # 6. Renombrar la columna de Saldo Capital (¡Dejamos el nombre interno para la visualización!)
+    # Esto es crucial para que el Key Error no aparezca al referenciarla en el bloque de Streamlit.
+    df_tasas.rename(columns={'saldo_capital_total': 'Saldo Capital Total (Monto)'}, inplace=True)
+
     return df_tasas
 
 
@@ -397,7 +394,8 @@ try:
     if not df_tasas_mora.empty:
         # 1. Crear el DataFrame de Display y aplicar el formato de fecha de Apertura
         df_display_raw = df_tasas_mora.copy()
-        df_display_raw['Mes de Apertura'] = df_display_raw['Mes de Apertura'].dt.strftime('%Y-%m')
+        
+        # Aquí la columna de Saldo ya se llama 'Saldo Capital Total (Monto)'
 
         # Formato de moneda para los montos y porcentaje para las tasas
         def format_currency(val):
@@ -410,13 +408,12 @@ try:
         tasa_cols = df_display.columns[2:]
 
         for index, row in df_display.iterrows():
-            cohort_date_str = row['Mes de Apertura']
-            
-            try:
-                cohort_date = pd.to_datetime(cohort_date_str)
-            except:
-                continue
+            cohort_date = row['Mes de Apertura'] # Es de tipo Datetime
+            cohort_date_str = cohort_date.strftime('%Y-%m')
 
+            # Reemplazar la fecha Datetime por la cadena formateada en df_display
+            df_display.loc[index, 'Mes de Apertura'] = cohort_date_str
+            
             for col in tasa_cols:
                 # El nombre de la columna es 'AAAA-MM (X-Y)'
                 col_date_str = col.split(' ')[0] 
@@ -426,6 +423,7 @@ try:
                 except:
                     continue
 
+                # Usamos la columna de fecha Datetime para la comparación
                 if col_date <= cohort_date: 
                     # Corte: Asignamos string vacío
                     df_display.loc[index, col] = '' 
@@ -444,13 +442,15 @@ try:
         min_row = pd.Series(index=df_display.columns)
         
         # Obtener las columnas numéricas originales (para promedios/máx/mín exactos)
-        saldo_col_raw = df_tasas_mora.iloc[:, 1]
+        # Accedemos por nombre de columna
+        saldo_col_name = 'Saldo Capital Total (Monto)'
+        saldo_col_raw = df_tasas_mora[saldo_col_name]
         rate_cols_raw = df_tasas_mora.iloc[:, 2:]
         
         # SALDO CAPITAL TOTAL (Monto - Índice 1)
-        avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
-        max_row.iloc[1] = format_currency(saldo_col_raw.max())
-        min_row.iloc[1] = format_currency(saldo_col_raw.min())
+        avg_row[saldo_col_name] = format_currency(saldo_col_raw.mean())
+        max_row[saldo_col_name] = format_currency(saldo_col_raw.max())
+        min_row[saldo_col_name] = format_currency(saldo_col_raw.min())
         
         # TASAS DE MORA (Índice 2 en adelante)
         for i, col in enumerate(tasa_cols):
@@ -460,9 +460,9 @@ try:
             max_rate = rate_values.max()
             min_rate = rate_values.min()
             
-            avg_row.iloc[i + 2] = format_percent(avg_rate)
-            max_row.iloc[i + 2] = format_percent(max_rate)
-            min_row.iloc[i + 2] = format_percent(min_rate)
+            avg_row[col] = format_percent(avg_rate)
+            max_row[col] = format_percent(max_rate)
+            min_row[col] = format_percent(min_rate)
         
         # Etiquetas
         avg_row.iloc[0] = 'PROMEDIO'

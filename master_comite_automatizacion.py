@@ -203,8 +203,8 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
 # Función auxiliar para convertir strings de porcentaje a float para el gradiente
 def clean_cell_to_float(val):
     if isinstance(val, str) and val.endswith('%'):
-        # Maneja la coma si estuviera presente, aunque format_percent usa solo punto decimal
         try:
+            # Quitamos % y coma, y convertimos a float
             return float(val.replace('%', '').replace(',', ''))
         except ValueError:
             return np.nan 
@@ -212,10 +212,11 @@ def clean_cell_to_float(val):
 
 # Función que aplica el gradiente a una fila de tasas
 def apply_gradient_by_row(row):
-    """Aplica el gradiente a una Series (fila) de tasas."""
+    """Aplica el gradiente a una Series (fila) de tasas, usando mapeo CSS."""
     
-    # Creamos una copia de los valores numéricos de la fila
-    numeric_rates = row.apply(clean_cell_to_float).dropna()
+    # 1. Creamos una copia de los valores numéricos de la fila (solo tasas)
+    # Excluyendo Mes y Saldo (primeras dos columnas)
+    numeric_rates = row.iloc[2:].apply(clean_cell_to_float).dropna()
     
     # Inicializar el estilo de la fila a vacío
     styles = [''] * len(row)
@@ -224,13 +225,26 @@ def apply_gradient_by_row(row):
         # Necesitas al menos dos valores para una escala de gradiente.
         return styles
 
-    # Generar la paleta de colores de Matplotlib (Rojo-Amarillo-Verde, Rojo=Alto/Malo)
+    # 2. Generar la paleta de colores de Matplotlib (Rojo=Alto/Malo)
     cmap = mpl.cm.get_cmap('RdYlGn_r')
     
     v_min = numeric_rates.min()
     v_max = numeric_rates.max()
     
-    # Mapear los valores numéricos a colores RGB (0 a 1)
+    # Si todos los valores son iguales, el gradiente no es informativo, solo ponemos un color.
+    if v_min == v_max:
+        # Usaremos el color del valor central de la paleta
+        color_rgb = cmap(0.5)
+        # Aplicamos un color neutro (celeste claro) para valores iguales
+        neutral_style = f'background-color: rgba({int(color_rgb[0]*255)}, {int(color_rgb[1]*255)}, {int(color_rgb[2]*255)}, 0.5); text-align: center;'
+        
+        for col_name in numeric_rates.index:
+            col_loc = row.index.get_loc(col_name)
+            styles[col_loc] = neutral_style
+        return styles
+
+
+    # 3. Mapear los valores numéricos a colores CSS
     norm = mpl.colors.Normalize(v_min, v_max)
     
     for col_index, val in numeric_rates.items():
@@ -259,16 +273,16 @@ def style_table(df_display):
     styler = styler.set_table_styles([
         {'selector': 'th', 
          'props': [('background-color', '#ADD8E6'), # Celeste claro (LightBlue)
-                   ('color', 'black'),              # Aseguramos que el texto sea visible
+                   ('color', 'black'),              
                    ('font-weight', 'bold'),         # Negritas
-                   ('text-align', 'center')]}       # Alineación centrada para todos los títulos
+                   ('text-align', 'center')]}       
     ], overwrite=False) 
     
     # 2. Aplicar el gradiente fila por fila (HEATMAP)
     styler = styler.apply(
         apply_gradient_by_row, 
         axis=1, 
-        subset=tasa_cols # Aplicamos la función solo a las columnas de tasas
+        subset=df_display.columns # Aplicamos a todas las columnas, pero la función interna filtra
     )
 
     # 3. Aplicar formato de texto y negritas a las celdas de datos
@@ -374,7 +388,6 @@ try:
             
             try:
                 cohort_date = pd.to_datetime(cohort_date_str)
-                # La columna 'Mes de Apertura' ya está formateada como string en df_display
             except:
                 continue
 

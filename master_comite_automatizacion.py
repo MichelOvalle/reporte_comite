@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from dateutil.relativedelta import relativedelta
-import matplotlib as mpl # Necesario para la paleta de colores estándar
+import matplotlib as mpl 
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
 # 🚨 ¡IMPORTANTE! Revisa que esta ruta sea correcta en tu computadora
@@ -237,10 +237,7 @@ def apply_gradient_by_row(row):
         # Calcular el color (tupla RGBA)
         rgba = cmap(norm(val))
         
-        # Convertir RGBA a color hexadecimal (CSS)
-        # style_color = mpl.colors.to_hex(rgba, keep_alpha=False)
-        
-        # Usamos el color RGBA directamente, que es más seguro en entornos web
+        # Convertir RGBA a color CSS
         style_color = f'background-color: rgba({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)}, 1.0); text-align: center;'
 
         # Encontrar la ubicación de la columna de tasa en la fila completa
@@ -252,30 +249,38 @@ def apply_gradient_by_row(row):
 
 
 def style_table(df_display):
-    """Inicializa el Styler y aplica todos los formatos."""
+    """Inicializa el Styler y aplica todos los formatos, incluyendo el heatmap y los encabezados."""
     
     tasa_cols = df_display.columns[2:].tolist()
     
     styler = df_display.style
     
-    # 1. Aplicar el gradiente fila por fila (HEATMAP)
-    # 🚨 Usamos .apply(axis=1) sobre las columnas de tasas para aplicar apply_gradient_by_row
+    # 🚨 1. ESTILOS PARA LOS ENCABEZADOS (TÍTULOS)
+    styler = styler.set_table_styles([
+        {'selector': 'th', 
+         'props': [('background-color', '#ADD8E6'), # Celeste claro (LightBlue)
+                   ('color', 'black'),              # Aseguramos que el texto sea visible
+                   ('font-weight', 'bold'),         # Negritas
+                   ('text-align', 'center')]}       # Alineación centrada para todos los títulos
+    ], overwrite=False) 
+    
+    # 2. Aplicar el gradiente fila por fila (HEATMAP)
     styler = styler.apply(
         apply_gradient_by_row, 
         axis=1, 
         subset=tasa_cols # Aplicamos la función solo a las columnas de tasas
     )
 
-    # 2. Aplicar formato de texto general:
+    # 3. Aplicar formato de texto y negritas a las celdas de datos
     styler = styler.set_properties(
         **{'text-align': 'center'},
         subset=tasa_cols 
     ).set_properties(
-        # Negrita y alineación para Mes de Apertura
+        # Negrita y alineación para Mes de Apertura (Columna 0)
         **{'font-weight': 'bold', 'text-align': 'left'},
         subset=[df_display.columns[0]] 
     ).set_properties(
-        # Negrita y alineación para Saldo Capital Total
+        # Negrita y alineación para Saldo Capital Total (Columna 1)
         **{'font-weight': 'bold', 'text-align': 'right'},
         subset=[df_display.columns[1]] 
     )
@@ -369,6 +374,7 @@ try:
             
             try:
                 cohort_date = pd.to_datetime(cohort_date_str)
+                # La columna 'Mes de Apertura' ya está formateada como string en df_display
             except:
                 continue
 
@@ -389,7 +395,7 @@ try:
         df_display.iloc[:, 1] = df_display.iloc[:, 1].apply(format_currency)
         
         
-        # 3. APLICAR ESTILOS CON STYLER (Heatmap)
+        # 3. APLICAR ESTILOS CON STYLER (Heatmap y Encabezados)
         styler = style_table(df_display)
         
         st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (Fechas de Reporte)")

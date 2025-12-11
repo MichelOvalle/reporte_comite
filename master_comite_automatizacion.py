@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from dateutil.relativedelta import relativedelta
 import matplotlib as mpl 
-import altair as alt # Importamos Altair para las gráficas
+import altair as alt
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
 FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_automatizacion.xlsx'
@@ -269,17 +269,27 @@ def create_cohort_chart(df_cohort, cohort_index, mora_type):
     df_cohort debe ser el DataFrame con una sola fila correspondiente a la cohorte.
     """
     
+    # Aseguramos que solo estamos tomando la primera fila (ya que solo debería ser una)
+    df_cohort_row = df_cohort.iloc[0]
+
     # 1. Preparar DataFrame (Seleccionar solo tasas y pivotar)
     # Excluir Mes de Apertura y Saldo Capital Total (las dos primeras columnas)
-    df_chart = df_cohort.iloc[0, 2:].reset_index()
+    df_chart = df_cohort_row.iloc[2:].reset_index()
     df_chart.columns = ['Mes de Reporte', 'Tasa (%)']
     
+    # Convertir Tasa de (%) a float, ignorando los valores vacíos ('')
+    df_chart['Tasa (%)'] = df_chart['Tasa (%)'].apply(lambda x: clean_cell_to_float(x) if isinstance(x, str) else x)
+    df_chart.dropna(subset=['Tasa (%)'], inplace=True) # Eliminar filas donde la Tasa es NaN (vacío)
+
+    # Si no quedan datos después de la limpieza, retornar None
+    if df_chart.empty:
+        return None
+
     # 2. Calcular la Antigüedad (para el eje X)
-    # La antigüedad es la posición del mes de reporte dentro de las columnas de tasa
     df_chart['Antigüedad (Meses)'] = range(len(df_chart))
     
     # 3. Formatear y Crear Título
-    cohort_date_str = df_cohort.iloc[0]['Mes de Apertura'].strftime('%Y-%m')
+    cohort_date_str = df_cohort_row['Mes de Apertura'] # Ya está formateada a AAAA-MM
     title_text = f"Curva de Mora {mora_type} | Cohorte de {cohort_date_str}"
     
     # 4. Crear Gráfico Altair
@@ -561,21 +571,39 @@ try:
         # ----------------------------------------------------------------------------------
         st.header("3. Gráficas de Comportamiento Individual")
         
+        
         # --- GRÁFICA 1: SEGUNDA COHORTE (Mora 30-150) ---
-        if len(df_display_raw_30150) > 1:
-            # La tabla ya está ordenada (ASCENDENTE), por lo que la segunda cohorte es el índice [1]
-            df_cohort_30150 = df_display_raw_30150.iloc[[1]].copy()
-            chart_30150 = create_cohort_chart(df_cohort_30150, 1, '30-150')
-            st.altair_chart(chart_30150, use_container_width=True)
+        
+        # Intentamos tomar la segunda cohorte (índice 1). Si solo hay una, tomamos la primera (índice 0).
+        cohort_index_30150 = 1 if len(df_display_raw_30150) > 1 else 0
+        
+        if len(df_display_raw_30150) > 0:
+            
+            # --- CORRECCIÓN APLICADA: ACCESO SEGURO A FILAS ---
+            df_cohort_30150 = df_display_raw_30150.iloc[[cohort_index_30150]].copy()
+            chart_30150 = create_cohort_chart(df_cohort_30150, cohort_index_30150, '30-150')
+            
+            if chart_30150:
+                 st.altair_chart(chart_30150, use_container_width=True)
+            else:
+                 st.warning(f"No hay datos de tasas válidos para graficar la Cohorte {cohort_index_30150 + 1} (Mora 30-150).")
         else:
-            st.warning("No hay suficientes cohortes (necesarias 2) para mostrar la gráfica de la Segunda Cohorte (Mora 30-150).")
+            st.warning("No hay suficientes cohortes para mostrar la gráfica de la Segunda Cohorte (Mora 30-150).")
+            
             
         # --- GRÁFICA 2: PRIMERA COHORTE (Mora 8-90) ---
+        
+        # La primera cohorte es siempre el índice 0, si existe.
         if len(df_display_raw_890) > 0:
-            # La tabla ya está ordenada (ASCENDENTE), por lo que la primera cohorte es el índice [0]
+            
             df_cohort_890 = df_display_raw_890.iloc[[0]].copy()
             chart_890 = create_cohort_chart(df_cohort_890, 0, '8-90')
-            st.altair_chart(chart_890, use_container_width=True)
+            
+            if chart_890:
+                st.altair_chart(chart_890, use_container_width=True)
+            else:
+                st.warning("No hay datos de tasas válidos para graficar la Primera Cohorte (Mora 8-90).")
+
         else:
             st.warning("No hay suficientes cohortes para mostrar la gráfica de la Primera Cohorte (Mora 8-90).")
 

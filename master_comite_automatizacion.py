@@ -269,7 +269,11 @@ def create_cohort_chart(df_cohort_row, mora_type):
     df_cohort_row es una Series (una sola fila) correspondiente a la cohorte.
     """
     
-    # 1. Preparar DataFrame (Seleccionar solo tasas y pivotar)
+    # 1. Chequeo de validez de la Serie
+    if df_cohort_row.empty or df_cohort_row.shape[0] < 3: 
+        return None # Necesita al menos Mes Apertura, Saldo Capital, y 1 columna de tasa.
+
+    # 2. Preparar DataFrame (Seleccionar solo tasas y pivotar)
     # Excluir Mes de Apertura y Saldo Capital Total (las dos primeras columnas)
     df_chart = df_cohort_row.iloc[2:].reset_index()
     df_chart.columns = ['Mes de Reporte', 'Tasa (%)']
@@ -281,14 +285,14 @@ def create_cohort_chart(df_cohort_row, mora_type):
     if df_chart.empty:
         return None
 
-    # 2. Calcular la Antigüedad (para el eje X)
+    # 3. Calcular la Antigüedad (para el eje X)
     df_chart['Antigüedad (Meses)'] = range(len(df_chart))
     
-    # 3. Formatear y Crear Título
+    # 4. Formatear y Crear Título
     cohort_date_str = df_cohort_row['Mes de Apertura']
     title_text = f"Curva de Mora {mora_type} | Cohorte de {cohort_date_str}"
     
-    # 4. Crear Gráfico Altair
+    # 5. Crear Gráfico Altair
     chart = alt.Chart(df_chart).mark_line(point=True).encode(
         x=alt.X('Antigüedad (Meses)', 
                 axis=alt.Axis(tickMinStep=1, title='Antigüedad de la Cohorte (Meses)', 
@@ -301,6 +305,19 @@ def create_cohort_chart(df_cohort_row, mora_type):
     ).interactive()
     
     return chart
+
+def get_cohort_row_safely(df, index):
+    """Intenta obtener una fila de DataFrame por índice posicional, manejando errores de índice."""
+    try:
+        if index >= len(df):
+            return pd.Series(dtype='object') # Retorna Serie vacía si el índice está fuera de límites
+        
+        # Intenta obtener la Series
+        return df.iloc[index]
+    except IndexingError:
+        return pd.Series(dtype='object')
+    except Exception:
+        return pd.Series(dtype='object')
 
 
 # --- CARGA PRINCIPAL DEL DATAFRAME ---
@@ -569,23 +586,15 @@ try:
         
         cohort_index_30150 = 1 # Índice de la segunda cohorte
         
-        if len(df_display_raw_30150) > cohort_index_30150:
-            try:
-                # Obtener la Series de la fila (SEGURO)
-                df_cohort_row_30150 = df_display_raw_30150.iloc[cohort_index_30150]
-                
-                # Pasar la Series directamente a la función
-                chart_30150 = create_cohort_chart(df_cohort_row_30150, '30-150')
-                
-                if chart_30150:
-                     st.altair_chart(chart_30150, use_container_width=True)
-                else:
-                     st.warning("La Segunda Cohorte (Mora 30-150) no tiene suficientes puntos de datos válidos para graficar.")
-                     
-            except IndexingError as e:
-                st.warning(f"Error de índice (IndexingError) al intentar acceder a la Segunda Cohorte (Mora 30-150). Por favor, verifica tus filtros. (Detalle: {e})")
-            except Exception as e:
-                st.warning(f"Error inesperado al generar la gráfica de Mora 30-150. Detalle: {e}")
+        df_cohort_row_30150 = get_cohort_row_safely(df_display_raw_30150, cohort_index_30150)
+        
+        if not df_cohort_row_30150.empty:
+            chart_30150 = create_cohort_chart(df_cohort_row_30150, '30-150')
+            
+            if chart_30150:
+                 st.altair_chart(chart_30150, use_container_width=True)
+            else:
+                 st.warning("La Segunda Cohorte (Mora 30-150) no tiene suficientes puntos de datos válidos para graficar.")
         else:
             st.warning("Necesitas al menos dos cohortes disponibles para graficar la 'Segunda Cohorte' (Mora 30-150).")
             
@@ -594,24 +603,15 @@ try:
         
         cohort_index_890 = 0 # Índice de la primera cohorte
         
-        if len(df_display_raw_890) > cohort_index_890:
-            try:
-                # Obtener la Series de la fila (SEGURO)
-                df_cohort_row_890 = df_display_raw_890.iloc[cohort_index_890]
-                
-                # Pasar la Series directamente a la función
-                chart_890 = create_cohort_chart(df_cohort_row_890, '8-90')
-                
-                if chart_890:
-                    st.altair_chart(chart_890, use_container_width=True)
-                else:
-                    st.warning("La Primera Cohorte (Mora 8-90) no tiene suficientes puntos de datos válidos para graficar.")
-
-            except IndexingError as e:
-                 st.warning(f"Error de índice (IndexingError) al intentar acceder a la Primera Cohorte (Mora 8-90). Por favor, verifica tus filtros. (Detalle: {e})")
-            except Exception as e:
-                st.warning(f"Error inesperado al generar la gráfica de Mora 8-90. Detalle: {e}")
-
+        df_cohort_row_890 = get_cohort_row_safely(df_display_raw_890, cohort_index_890)
+        
+        if not df_cohort_row_890.empty:
+            chart_890 = create_cohort_chart(df_cohort_row_890, '8-90')
+            
+            if chart_890:
+                st.altair_chart(chart_890, use_container_width=True)
+            else:
+                st.warning("La Primera Cohorte (Mora 8-90) no tiene suficientes puntos de datos válidos para graficar.")
         else:
             st.warning("No hay cohortes disponibles para graficar la Primera Cohorte (Mora 8-90).")
 

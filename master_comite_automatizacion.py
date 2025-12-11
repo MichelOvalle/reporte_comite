@@ -81,8 +81,12 @@ def load_and_transform_data(file_path):
         
         # --- COLUMNAS DE SEGUIMIENTO DE MORA 30-150 (C1 a C25) ---
         
-        # C1 (Mes de Antigüedad 0) de 30-150 se queda en 0 por convención de Vintage
-        df_master['saldo_capital_total_c1'] = 0 
+        # C1 (Mes de Antigüedad 0) de 30-150: APLICAMOS LÓGICA DE DIF_MES=0 (Cambiado)
+        df_master['saldo_capital_total_c1'] = np.where(
+            df_master['dif_mes'] == 0,
+            df_master['saldo_capital_total_30150'], 
+            0
+        ) 
         
         for n in range(1, 25):
             col_index = n + 1 
@@ -96,7 +100,7 @@ def load_and_transform_data(file_path):
 
         # --- NUEVAS COLUMNAS DE SEGUIMIENTO DE MORA 8-90 (890_C1 a 890_C25) ---
         
-        # Lógica Actualizada para C1: SI(dif_meses = 0, saldo_capital_total_890, 0)
+        # C1: SI(dif_meses = 0, saldo_capital_total_890, 0) (Lógica ya estaba correcta)
         df_master['saldo_capital_total_890_c1'] = np.where(
             df_master['dif_mes'] == 0,
             df_master['saldo_capital_total_890'],
@@ -110,7 +114,7 @@ def load_and_transform_data(file_path):
             # Lógica: SI(dif_meses = n, saldo_capital_total_890, 0)
             df_master[col_name] = np.where(
                 df_master['dif_mes'] == n,
-                df_master['saldo_capital_total_890'], # Usamos la columna base 890
+                df_master['saldo_capital_total_890'], 
                 0
             )
 
@@ -447,6 +451,7 @@ try:
                 if col_date < cohort_date: 
                     df_display_30150.loc[index, col] = '' 
                 else:
+                    # Usar el valor numérico (row[col]) de df_display_raw_30150
                     df_display_30150.loc[index, col] = format_percent(row[col])
 
         df_display_30150.iloc[:, 1] = df_display_30150.iloc[:, 1].apply(format_currency)
@@ -522,6 +527,7 @@ try:
                 if col_date < cohort_date: 
                     df_display_890.loc[index, col] = '' 
                 else:
+                    # Usar el valor numérico (row[col]) de df_display_raw_890
                     df_display_890.loc[index, col] = format_percent(row[col])
 
         df_display_890.iloc[:, 1] = df_display_890.iloc[:, 1].apply(format_currency)

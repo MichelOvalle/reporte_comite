@@ -213,6 +213,7 @@ def clean_cell_to_float(val):
 def apply_gradient_by_row(row):
     """Aplica el gradiente a una Series (fila) de tasas, usando mapeo CSS."""
     
+    # Excluir Mes de Apertura y Saldo Capital Total (primeras dos columnas)
     numeric_rates = row.iloc[2:].apply(clean_cell_to_float).dropna()
     
     styles = [''] * len(row)
@@ -254,22 +255,21 @@ def style_table(df_display):
     
     styler = df_display.style
     
-    # 🚨 1. ESTILOS PARA LOS ENCABEZADOS (TÍTULOS) - CORRECCIÓN APLICADA AQUÍ
-    # Se utiliza una combinación de .set_table_styles para TH y .set_properties para asegurar las negritas.
+    # 🚨 1. ESTILOS PARA LOS ENCABEZADOS (TÍTULOS) - USO DE SELECTOR MÁS AGRESIVO
+    # Apuntamos a todos los encabezados (th) y aplicamos el estilo con !important 
+    # para intentar sobrescribir el estilo de Streamlit.
     styler = styler.set_table_styles([
-        # Apunta al elemento de encabezado (th) para el color de fondo y negrita
         {'selector': 'th', 
-         'props': [('background-color', '#ADD8E6'), 
-                   ('color', 'black'),              
-                   ('font-weight', 'bold'),         
-                   ('text-align', 'center')]}       
+         'props': [('background-color', '#ADD8E6 !important'), 
+                   ('color', 'black !important'),              
+                   ('font-weight', 'bold !important'),         
+                   ('text-align', 'center !important')]}       
     ], overwrite=False) 
     
     # 2. Aplicar el gradiente fila por fila (HEATMAP)
     styler = styler.apply(
         apply_gradient_by_row, 
         axis=1, 
-        # Es crucial aplicar a df_display.columns, la función interna hace el subset
         subset=df_display.columns
     )
 

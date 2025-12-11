@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 from dateutil.relativedelta import relativedelta
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
@@ -120,7 +119,7 @@ def load_and_transform_data(file_path):
         return pd.DataFrame()
 
 
-# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (¡CALCULA LA TASA DE MORA Y RENOMBRA!) ---
+# --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (¡CALCULA LA TASA DE MORA!) ---
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Excluir NaT antes de procesar
@@ -136,6 +135,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
                 'saldo_capital_total_c1': 'sum',
                 'capital_c1': 'sum'}
     
+    # Listas para manejar los pares de columnas C_n y Capital_C_n
     c_cols_mora = ['saldo_capital_total_c1']
     c_cols_capital = ['capital_c1']
 
@@ -157,10 +157,12 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     df_summary['Mes de Apertura'] = pd.to_datetime(df_summary[time_column])
     
+    # Creamos el DataFrame de tasas con las columnas de saldos base (solo Saldo Capital Total)
     df_tasas = df_summary[['Mes de Apertura', 'saldo_capital_total']].copy()
     
     # Calcular las tasas C1 a C25
     for mora_col, capital_col in zip(c_cols_mora, c_cols_capital):
+        # Tasa = (Mora_Cn / Capital_Cn) * 100
         tasa = np.where(
             df_summary[capital_col] != 0,
             (df_summary[mora_col] / df_summary[capital_col]) * 100,
@@ -177,25 +179,19 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # Renombrar columnas de tasas C1 a C25 (Antigüedad 0 a 24)
     for n in range(1, 26):
-        antiguedad = n - 1 # C1 es Antigüedad 0, C2 es Antigüedad 1, etc.
+        antiguedad = n - 1 
         
-        # Calcular la fecha de reporte: MAX_FECHA_CIERRE - (Antigüedad - 0) meses
-        # La fecha de reporte de la columna C_n es MAX_FECHA_CIERRE menos (n-1) meses.
-        # Por ejemplo, para C1 (n=1, Ant=0), la fecha es MAX_FECHA_CIERRE - 0 meses.
-        # Para C2 (n=2, Ant=1), la fecha es MAX_FECHA_CIERRE - 1 mes.
-        
-        # Usamos relativedelta para restar el número de meses (Antigüedad)
+        # Calcular la fecha de reporte: MAX_FECHA_CIERRE - (Antigüedad) meses
         target_date = max_fecha_cierre - relativedelta(months=antiguedad)
         
         # Renombramos con el formato de fecha AAAA-MM
         date_label = target_date.strftime('%Y-%m')
         
-        column_names.append(f'{date_label}') # El nombre de la columna es la fecha de cierre
+        column_names.append(f'{date_label}') 
     
     df_tasas.columns = column_names
     
     # 5. Ordenar por fecha de cohorte (ASCENDENTE: más antiguo primero)
-    # 🚨 CAMBIO CLAVE: Cambiamos ascending=False a ascending=True
     df_tasas = df_tasas.sort_values('Mes de Apertura', ascending=True)
     
     return df_tasas
@@ -217,19 +213,11 @@ if df_master.empty:
 
 # --- 🛑 FILTRO PARA VISUALIZACIÓN: ÚLTIMAS 24 COHORTES DE APERTURA ---
 if not df_master['Mes_BperturB'].empty:
-    # 1. Obtener las fechas únicas
     unique_cohort_dates = df_master['Mes_BperturB'].dropna().unique()
-    
-    # 2. Convertir a datetime y ordenar 
     sorted_cohort_dates = pd.Series(pd.to_datetime(unique_cohort_dates)).sort_values(ascending=False)
-    
-    # 3. Seleccionar las últimas 24 (máximo)
     last_24_cohorts = sorted_cohort_dates.iloc[:24]
-    
-    # 4. Aplicar el filtro
     df_master = df_master[df_master['Mes_BperturB'].isin(last_24_cohorts)].copy()
     
-    # Informar al usuario del filtro
     if not last_24_cohorts.empty:
         max_date = last_24_cohorts.max().strftime('%Y-%m')
         min_date = last_24_cohorts.min().strftime('%Y-%m')
@@ -270,7 +258,7 @@ if df_filtered.empty:
 
 # --- VISUALIZACIÓN PRINCIPAL: TABLA DE TASAS DE MORA (VINTAGE) ---
 
-st.header("1. Tasa de Mora 30-150 por Cohorte y Antigüedad (Vintage)")
+st.header("1. Matriz de Mora 30-150 por Cohorte (Vintage)")
 
 try:
     # Calcular la Tabla Consolidada y las Tasas
@@ -285,18 +273,45 @@ try:
             return f'{val:,.0f}'
         def format_percent(val):
             return f'{val:,.2f}%'
-
-        st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (Fechas de Reporte)")
         
+        # 3. Aplicar la lógica de corte (Mes de Apertura > Mes de Columna)
         df_display = df_tasas_mora.copy()
         
-        # Aplicar formato: Monto solo a la segunda columna (índice 1: Saldo Capital Total)
+        # Columnas a partir del índice 2 son las tasas (índice 0 es Mes de Apertura, índice 1 es Saldo Total)
+        tasa_cols = df_display.columns[2:]
+
+        for index, row in df_display.iterrows():
+            cohort_date_str = row['Mes de Apertura']
+            
+            # Convertir la fecha de apertura de la fila a Datetime
+            try:
+                cohort_date = pd.to_datetime(cohort_date_str)
+            except:
+                # Si la conversión falla, saltamos la fila
+                continue
+
+            for col in tasa_cols:
+                # Convertir la fecha de la columna a Datetime
+                try:
+                    col_date = pd.to_datetime(col + '-01') # Añadimos '-01' para formar una fecha completa
+                except:
+                    # Si la columna no es una fecha válida, la saltamos (ej., 'Mes de Apertura')
+                    continue
+
+                # Lógica: Si la fecha de la columna (Reporte) es anterior a la fecha de la fila (Apertura)
+                # O si la fecha de la columna (Reporte) es igual a la fecha de la fila (Apertura)
+                # Ya que la Mora 30-150 se observa por primera vez UN MES después de la apertura.
+                if col_date <= cohort_date: 
+                    # Asignamos valor nulo (string vacío)
+                    df_display.loc[index, col] = '' 
+                else:
+                    # Aplicamos formato de porcentaje
+                    df_display.loc[index, col] = format_percent(row[col])
+
+        # Formatear la columna de Saldo Capital Total (Monto)
         df_display.iloc[:, 1] = df_display.iloc[:, 1].apply(format_currency)
-            
-        # Tasas (Columnas 2 en adelante: Tasas C1 a C25)
-        for col in df_display.columns[2:]:
-            df_display[col] = df_display[col].apply(format_percent)
-            
+
+        st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (Fechas de Reporte)")
         st.dataframe(df_display, hide_index=True)
 
     else:

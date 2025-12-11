@@ -3,8 +3,7 @@ import pandas as pd
 import numpy as np
 from dateutil.relativedelta import relativedelta
 import matplotlib as mpl 
-import altair as alt
-from pandas.core.indexing import IndexingError # Importar el error específico de indexación
+# import altair as alt # Eliminado
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
 FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_automatizacion.xlsx'
@@ -187,7 +186,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     return df_tasas
 
 
-# --- FUNCIONES DE ESTILIZADO Y GRÁFICAS ---
+# --- FUNCIÓN DE ESTILIZADO (FORMATO CONDICIONAL) ---
 
 def clean_cell_to_float(val):
     if isinstance(val, str) and val.endswith('%'):
@@ -262,62 +261,6 @@ def style_table(df_display):
     styler = styler.apply(highlight_summary_rows, axis=1)
 
     return styler
-
-def create_cohort_chart(df_cohort_row, mora_type):
-    """
-    Prepara los datos y crea un gráfico de línea Altair para una cohorte específica.
-    df_cohort_row es una Series (una sola fila) correspondiente a la cohorte.
-    """
-    
-    # 1. Chequeo de validez de la Serie
-    if df_cohort_row.empty or df_cohort_row.shape[0] < 3: 
-        return None # Necesita al menos Mes Apertura, Saldo Capital, y 1 columna de tasa.
-
-    # 2. Preparar DataFrame (Seleccionar solo tasas y pivotar)
-    # Excluir Mes de Apertura y Saldo Capital Total (las dos primeras columnas)
-    df_chart = df_cohort_row.iloc[2:].reset_index()
-    df_chart.columns = ['Mes de Reporte', 'Tasa (%)']
-    
-    # Convertir Tasa de (%) a float, ignorando los valores vacíos ('')
-    df_chart['Tasa (%)'] = df_chart['Tasa (%)'].apply(lambda x: clean_cell_to_float(x) if isinstance(x, str) else x)
-    df_chart.dropna(subset=['Tasa (%)'], inplace=True) # Eliminar filas donde la Tasa es NaN (vacío)
-
-    if df_chart.empty:
-        return None
-
-    # 3. Calcular la Antigüedad (para el eje X)
-    df_chart['Antigüedad (Meses)'] = range(len(df_chart))
-    
-    # 4. Formatear y Crear Título
-    cohort_date_str = df_cohort_row['Mes de Apertura']
-    title_text = f"Curva de Mora {mora_type} | Cohorte de {cohort_date_str}"
-    
-    # 5. Crear Gráfico Altair
-    chart = alt.Chart(df_chart).mark_line(point=True).encode(
-        x=alt.X('Antigüedad (Meses)', 
-                axis=alt.Axis(tickMinStep=1, title='Antigüedad de la Cohorte (Meses)', 
-                              labelOverlap=False)),
-        y=alt.Y('Tasa (%)', 
-                axis=alt.Axis(format='.2f', title='Tasa de Mora (%)')),
-        tooltip=['Mes de Reporte', 'Antigüedad (Meses)', alt.Tooltip('Tasa (%)', format='.2f')]
-    ).properties(
-        title=title_text
-    ).interactive()
-    
-    return chart
-
-def get_cohort_row_safely(df, index):
-    """Intenta obtener una fila de DataFrame por índice posicional, manejando errores de índice."""
-    try:
-        if index >= len(df):
-            return pd.Series(dtype='object') # Retorna Serie vacía si el índice está fuera de límites
-        
-        # Intenta obtener la Series
-        return df.iloc[index]
-    except IndexingError:
-        return pd.Series(dtype='object')
-    except Exception:
-        return pd.Series(dtype='object')
 
 
 # --- CARGA PRINCIPAL DEL DATAFRAME ---
@@ -576,47 +519,10 @@ try:
         st.dataframe(styler_890, hide_index=True)
 
 
-        # ----------------------------------------------------------------------------------
-        # --- 3. GRÁFICAS DE COMPORTAMIENTO DE COHORTE ---
-        # ----------------------------------------------------------------------------------
-        st.header("3. Gráficas de Comportamiento Individual")
-        
-        
-        # --- GRÁFICA 1: SEGUNDA COHORTE (Mora 30-150) ---
-        
-        cohort_index_30150 = 1 # Índice de la segunda cohorte
-        
-        df_cohort_row_30150 = get_cohort_row_safely(df_display_raw_30150, cohort_index_30150)
-        
-        if not df_cohort_row_30150.empty:
-            chart_30150 = create_cohort_chart(df_cohort_row_30150, '30-150')
-            
-            if chart_30150:
-                 st.altair_chart(chart_30150, use_container_width=True)
-            else:
-                 st.warning("La Segunda Cohorte (Mora 30-150) no tiene suficientes puntos de datos válidos para graficar.")
-        else:
-            st.warning("Necesitas al menos dos cohortes disponibles para graficar la 'Segunda Cohorte' (Mora 30-150).")
-            
-            
-        # --- GRÁFICA 2: PRIMERA COHORTE (Mora 8-90) ---
-        
-        cohort_index_890 = 0 # Índice de la primera cohorte
-        
-        df_cohort_row_890 = get_cohort_row_safely(df_display_raw_890, cohort_index_890)
-        
-        if not df_cohort_row_890.empty:
-            chart_890 = create_cohort_chart(df_cohort_row_890, '8-90')
-            
-            if chart_890:
-                st.altair_chart(chart_890, use_container_width=True)
-            else:
-                st.warning("La Primera Cohorte (Mora 8-90) no tiene suficientes puntos de datos válidos para graficar.")
-        else:
-            st.warning("No hay cohortes disponibles para graficar la Primera Cohorte (Mora 8-90).")
+        # NOTA: La sección "3. Gráficas de Comportamiento Individual" ha sido eliminada.
 
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")
 
 except Exception as e:
-    st.error(f"Error al generar la tabla de Tasas de Mora o las gráficas: {e}")
+    st.error(f"Error al generar la tabla de Tasas de Mora: {e}")

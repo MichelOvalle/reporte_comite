@@ -566,19 +566,15 @@ try:
         
         # --- GRÁFICA 1: SEGUNDA COHORTE (Mora 30-150) ---
         
-        # Buscamos el índice 1 (Segunda Cohorte)
-        cohort_index_30150 = 1
+        cohort_index_30150 = 1 # Índice de la segunda cohorte
         
         if len(df_display_raw_30150) > cohort_index_30150:
             
-            # Usamos iloc[index] y luego .to_frame().T para convertir la Serie a DataFrame si es necesario, 
-            # pero más simple y seguro es obtener la Series directamente y manejarla.
+            # Obtener la Series de la fila (SEGURO)
             df_cohort_row_30150 = df_display_raw_30150.iloc[cohort_index_30150]
             
-            # Necesitamos convertir la Series a un DataFrame de 1 fila para la función create_cohort_chart
-            df_cohort_30150 = df_cohort_row_30150.to_frame().T.copy() 
-            
-            chart_30150 = create_cohort_chart(df_cohort_30150, '30-150')
+            # Pasar la Series directamente a la función
+            chart_30150 = create_cohort_chart(df_cohort_row_30150, '30-150')
             
             if chart_30150:
                  st.altair_chart(chart_30150, use_container_width=True)
@@ -590,17 +586,15 @@ try:
             
         # --- GRÁFICA 2: PRIMERA COHORTE (Mora 8-90) ---
         
-        # Buscamos el índice 0 (Primera Cohorte)
-        cohort_index_890 = 0
+        cohort_index_890 = 0 # Índice de la primera cohorte
         
         if len(df_display_raw_890) > cohort_index_890:
             
+            # Obtener la Series de la fila (SEGURO)
             df_cohort_row_890 = df_display_raw_890.iloc[cohort_index_890]
             
-            # Convertimos la Series a un DataFrame de 1 fila
-            df_cohort_890 = df_cohort_row_890.to_frame().T.copy()
-            
-            chart_890 = create_cohort_chart(df_cohort_890, '8-90')
+            # Pasar la Series directamente a la función
+            chart_890 = create_cohort_chart(df_cohort_row_890, '8-90')
             
             if chart_890:
                 st.altair_chart(chart_890, use_container_width=True)

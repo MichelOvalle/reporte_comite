@@ -623,9 +623,12 @@ with tab2:
 
         # 3. Generar Gráfica Altair
         chart1 = alt.Chart(df_long_melt).mark_line(point=True).encode(
-            x=alt.X('Antigüedad (Meses)', type='quantitative', title='Antigüedad de la Cohorte (Meses)', axis=alt.Axis(tickMinStep=1)),
+            x=alt.X('Antigüedad (Meses)', type='quantitative', title='Antigüedad de la Cohorte (Meses)', 
+                    # MODIFICACIÓN CLAVE: Forzar el dominio del eje X a empezar en 0
+                    scale=alt.Scale(domainMin=0), 
+                    axis=alt.Axis(tickMinStep=1)),
             y=alt.Y('Tasa (%)', type='quantitative', title='Tasa de Mora (%)', 
-                    # CORRECCIÓN: Usamos zero=True para forzar el inicio en 0
+                    # Usamos zero=True para forzar el inicio del eje Y en 0
                     scale=alt.Scale(zero=True), 
                     axis=alt.Axis(format='.2f')),
             

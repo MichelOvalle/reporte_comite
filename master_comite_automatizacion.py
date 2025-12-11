@@ -625,8 +625,8 @@ with tab2:
         chart1 = alt.Chart(df_long_melt).mark_line(point=True).encode(
             x=alt.X('Antigüedad (Meses)', type='quantitative', title='Antigüedad de la Cohorte (Meses)', axis=alt.Axis(tickMinStep=1)),
             y=alt.Y('Tasa (%)', type='quantitative', title='Tasa de Mora (%)', 
-                    # MODIFICACIÓN 2: Forzar el eje Y a empezar en 0
-                    scale=alt.Scale(domain=[0, alt.Undefined]), 
+                    # CORRECCIÓN: Usamos zero=True para forzar el inicio en 0
+                    scale=alt.Scale(zero=True), 
                     axis=alt.Axis(format='.2f')),
             
             color=alt.Color('Cohorte Etiqueta', type='nominal', title='Cohorte (Mes Apertura)'),

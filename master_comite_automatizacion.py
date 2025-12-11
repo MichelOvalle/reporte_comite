@@ -302,238 +302,250 @@ if df_master.empty:
     st.stop()
 
 
-# --- 🛑 FILTRO PARA VISUALIZACIÓN: ÚLTIMAS 24 COHORTES DE APERTURA ---
-if not df_master['Mes_BperturB'].empty:
-    unique_cohort_dates = df_master['Mes_BperturB'].dropna().unique()
-    sorted_cohort_dates = pd.Series(pd.to_datetime(unique_cohort_dates)).sort_values(ascending=False)
-    last_24_cohorts = sorted_cohort_dates.iloc[:24]
-    df_master = df_master[df_master['Mes_BperturB'].isin(last_24_cohorts)].copy()
+# --- CREACIÓN DE PESTAÑAS (TABS) ---
+tab1, tab2 = st.tabs(["Análisis Vintage", "Configuración / Parámetros"])
+
+with tab1:
+    # --- CONTENIDO DE LA PESTAÑA 1: ANÁLISIS VINTAGE ---
     
-    if not last_24_cohorts.empty:
-        max_date = last_24_cohorts.max().strftime('%Y-%m')
-        min_date = last_24_cohorts.min().strftime('%Y-%m')
-        st.info(f"Filtro aplicado: Mostrando solo las últimas **{len(last_24_cohorts)} cohortes** de apertura, desde **{min_date}** hasta **{max_date}**.")
-    
-if df_master.empty:
-    st.warning("El DataFrame maestro está vacío después de aplicar el filtro de las últimas 24 cohortes. Verifique que haya suficientes datos de cohorte.")
-    st.stop()
-# --- 🛑 FIN DEL FILTRO DE LAS 24 COHORTES 🛑 ---
-
-
-# --- FILTROS LATERALES ---
-st.sidebar.header("Filtros Interactivos")
-st.sidebar.markdown("**Instrucciones:** Las selecciones a continuación filtran los datos mostrados en la tabla.")
-
-# 1. Filtro por UEN
-uen_options = df_master['uen'].unique()
-selected_uens = st.sidebar.multiselect("Selecciona UEN", uen_options, default=uen_options[:min(2, len(uen_options))])
-
-# 2. Filtro por Origen Limpio
-origen_options = df_master['PR_Origen_Limpio'].unique()
-selected_origen = st.sidebar.multiselect("Selecciona Origen", origen_options, default=origen_options)
-
-if not selected_uens or not selected_origen:
-    st.warning("Por favor, selecciona al menos una UEN y un Origen en el panel lateral.")
-    st.stop()
-
-# Aplicar filtros al DataFrame maestro
-df_filtered = df_master[
-    (df_master['uen'].isin(selected_uens)) &
-    (df_master['PR_Origen_Limpio'].isin(selected_origen))
-].copy()
-
-if df_filtered.empty:
-    st.warning("No hay datos para la combinación de filtros seleccionada.")
-    st.stop()
-
-
-# --- VISUALIZACIÓN PRINCIPAL: TABLA DE TASAS DE MORA (VINTAGE) ---
-
-st.header("1. Vintage Mora 30-150")
-
-try:
-    # Calcular la Tabla Consolidada y las Tasas (Incluye 30-150 y 8-90)
-    df_tasas_mora_full = calculate_saldo_consolidado(df_filtered) 
-    
-    # ----------------------------------------------------------------------------------
-    # --- 1. MOSTRAR VINTAGE MORA 30-150 (Principal) ---
-    # ----------------------------------------------------------------------------------
-
-    if not df_tasas_mora_full.empty:
+    # --- 🛑 FILTRO PARA VISUALIZACIÓN: ÚLTIMAS 24 COHORTES DE APERTURA ---
+    if not df_master['Mes_BperturB'].empty:
+        unique_cohort_dates = df_master['Mes_BperturB'].dropna().unique()
+        sorted_cohort_dates = pd.Series(pd.to_datetime(unique_cohort_dates)).sort_values(ascending=False)
+        last_24_cohorts = sorted_cohort_dates.iloc[:24]
+        df_master = df_master[df_master['Mes_BperturB'].isin(last_24_cohorts)].copy()
         
-        # 1. AISLAR DATOS: Seleccionar solo columnas 30-150
-        cols_30150 = ['Mes de Apertura', 'Saldo Capital Total (Monto)'] + [
-            col for col in df_tasas_mora_full.columns if '(30-150)' in col
-        ]
-        df_display_raw_30150 = df_tasas_mora_full[cols_30150].copy()
+        if not last_24_cohorts.empty:
+            max_date = last_24_cohorts.max().strftime('%Y-%m')
+            min_date = last_24_cohorts.min().strftime('%Y-%m')
+            st.info(f"Filtro aplicado: Mostrando solo las últimas **{len(last_24_cohorts)} cohortes** de apertura, desde **{min_date}** hasta **{max_date}**.")
         
-        # 2. RENOMBRAR COLUMNAS DE REPORTE: Eliminar el sufijo (30-150)
-        rename_map_30150 = {col: col.replace(' (30-150)', '') 
-                            for col in df_display_raw_30150.columns if '(30-150)' in col}
-        df_display_raw_30150.rename(columns=rename_map_30150, inplace=True)
-        
-        
-        # --- LÓGICA DE VISUALIZACIÓN COMPARTIDA ---
-        
-        def format_currency(val):
-            return f'{val:,.0f}'
-        def format_percent(val):
-            return f'{val:,.2f}%'
-            
-        df_display_30150 = df_display_raw_30150.copy()
-        
-        # 🚨 SOLUCIÓN PARA EL FORMATO DE FECHA (Paso 1)
-        # 3. CREAR COLUMNA TEMPORAL DATETIME PARA LA LÓGICA DE CORTE
-        df_display_30150['Fecha Cohorte DATETIME'] = df_display_30150['Mes de Apertura'].apply(lambda x: x.normalize())
-        
-        # 4. FORMATO DE LA COLUMNA DE DISPLAY A STRING (Esto resuelve la visualización)
-        df_display_30150['Mes de Apertura'] = df_display_30150['Mes de Apertura'].dt.strftime('%Y-%m')
-        
-        tasa_cols_30150 = [col for col in df_display_30150.columns if col not in ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Fecha Cohorte DATETIME']]
+    if df_master.empty:
+        st.warning("El DataFrame maestro está vacío después de aplicar el filtro de las últimas 24 cohortes. Verifique que haya suficientes datos de cohorte.")
+        st.stop()
+    # --- 🛑 FIN DEL FILTRO DE LAS 24 COHORTES 🛑 ---
 
-        for index, row in df_display_30150.iterrows():
-            cohort_date = row['Fecha Cohorte DATETIME'] # Usamos la columna temporal DATETIME para la comparación
-            
-            for col in tasa_cols_30150:
-                col_date_str = col.split(' ')[0] 
-                
-                try:
-                    col_date = pd.to_datetime(col_date_str + '-01')
-                except:
-                    continue
 
-                # LÓGICA DE CORTE: Si la fecha de reporte es estrictamente menor a la de cohorte, es vacío.
-                if col_date < cohort_date: 
-                    df_display_30150.loc[index, col] = '' 
-                else:
-                    df_display_30150.loc[index, col] = format_percent(row[col])
+    # --- FILTROS LATERALES ---
+    st.sidebar.header("Filtros Interactivos")
+    st.sidebar.markdown("**Instrucciones:** Las selecciones a continuación filtran los datos mostrados en la tabla.")
 
-        df_display_30150.iloc[:, 1] = df_display_30150.iloc[:, 1].apply(format_currency)
+    # 1. Filtro por UEN
+    uen_options = df_master['uen'].unique()
+    selected_uens = st.sidebar.multiselect("Selecciona UEN", uen_options, default=uen_options[:min(2, len(uen_options))])
 
-        # 🚨 SOLUCIÓN PARA EL FORMATO DE FECHA (Paso 2)
-        # 5. ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
-        df_display_30150.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
+    # 2. Filtro por Origen Limpio
+    origen_options = df_master['PR_Origen_Limpio'].unique()
+    selected_origen = st.sidebar.multiselect("Selecciona Origen", origen_options, default=origen_options)
 
-        # --- CÁLCULO DE RESUMEN 30-150 ---
-        
-        saldo_col_raw = df_display_raw_30150['Saldo Capital Total (Monto)']
-        rate_cols_raw = df_display_raw_30150.iloc[:, 2:]
-        
-        avg_row = pd.Series(index=df_display_30150.columns)
-        max_row = pd.Series(index=df_display_30150.columns)
-        min_row = pd.Series(index=df_display_30150.columns)
-        
-        avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
-        max_row.iloc[1] = format_currency(saldo_col_raw.max())
-        min_row.iloc[1] = format_currency(saldo_col_raw.min())
-        
-        # El índice de las tasas ahora es correcto después de la eliminación de la columna
-        for i, col in enumerate(df_display_30150.columns[2:]):
-            rate_values = rate_cols_raw.iloc[:, i]
-            avg_row.iloc[i + 2] = format_percent(rate_values.mean())
-            max_row.iloc[i + 2] = format_percent(rate_values.max())
-            min_row.iloc[i + 2] = format_percent(rate_values.min())
-        
-        avg_row.iloc[0] = 'PROMEDIO'
-        max_row.iloc[0] = 'MÁXIMO'
-        min_row.iloc[0] = 'MÍNIMO'
-        
-        df_display_30150.loc['MÁXIMO'] = max_row
-        df_display_30150.loc['MÍNIMO'] = min_row
-        df_display_30150.loc['PROMEDIO'] = avg_row
-        
-        # APLICAR ESTILOS
-        styler_30150 = style_table(df_display_30150)
-        st.dataframe(styler_30150, hide_index=True)
+    if not selected_uens or not selected_origen:
+        st.warning("Por favor, selecciona al menos una UEN y un Origen en el panel lateral.")
+        st.stop()
+
+    # Aplicar filtros al DataFrame maestro
+    df_filtered = df_master[
+        (df_master['uen'].isin(selected_uens)) &
+        (df_master['PR_Origen_Limpio'].isin(selected_origen))
+    ].copy()
+
+    if df_filtered.empty:
+        st.warning("No hay datos para la combinación de filtros seleccionada.")
+        st.stop()
+
+
+    # --- VISUALIZACIÓN PRINCIPAL: TABLA DE TASAS DE MORA (VINTAGE) ---
+    st.header("1. Vintage Mora 30-150")
+
+    try:
+        # Calcular la Tabla Consolidada y las Tasas (Incluye 30-150 y 8-90)
+        df_tasas_mora_full = calculate_saldo_consolidado(df_filtered) 
         
         # ----------------------------------------------------------------------------------
-        # --- 2. MOSTRAR NUEVA TABLA VINTAGE MORA 8-90 ---
+        # --- 1. MOSTRAR VINTAGE MORA 30-150 (Principal) ---
         # ----------------------------------------------------------------------------------
-        st.header("2. Vintage Mora 8-90")
 
-        # 1. AISLAR DATOS: Seleccionar solo columnas 8-90
-        cols_890 = ['Mes de Apertura', 'Saldo Capital Total (Monto)'] + [
-            col for col in df_tasas_mora_full.columns if '(8-90)' in col
-        ]
-        df_display_raw_890 = df_tasas_mora_full[cols_890].copy()
-        
-        # 2. RENOMBRAR COLUMNAS DE REPORTE: Eliminar el sufijo (8-90)
-        rename_map_890 = {col: col.replace(' (8-90)', '') 
-                          for col in df_display_raw_890.columns if '(8-90)' in col}
-        df_display_raw_890.rename(columns=rename_map_890, inplace=True)
-        
-        
-        # --- LÓGICA DE VISUALIZACIÓN COMPARTIDA (PARA 8-90) ---
-
-        df_display_890 = df_display_raw_890.copy()
-        
-        # 🚨 SOLUCIÓN PARA EL FORMATO DE FECHA (Paso 1)
-        # 3. CREAR COLUMNA TEMPORAL DATETIME PARA LA LÓGICA DE CORTE
-        df_display_890['Fecha Cohorte DATETIME'] = df_display_890['Mes de Apertura'].apply(lambda x: x.normalize())
-        
-        # 4. FORMATO DE LA COLUMNA DE DISPLAY A STRING (Esto resuelve la visualización)
-        df_display_890['Mes de Apertura'] = df_display_890['Mes de Apertura'].dt.strftime('%Y-%m')
-        
-        tasa_cols_890 = [col for col in df_display_890.columns if col not in ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Fecha Cohorte DATETIME']]
-
-
-        for index, row in df_display_890.iterrows():
-            cohort_date = row['Fecha Cohorte DATETIME'] # Usamos la columna temporal DATETIME para la comparación
+        if not df_tasas_mora_full.empty:
             
-            for col in tasa_cols_890:
-                col_date_str = col.split(' ')[0] 
+            # 1. AISLAR DATOS: Seleccionar solo columnas 30-150
+            cols_30150 = ['Mes de Apertura', 'Saldo Capital Total (Monto)'] + [
+                col for col in df_tasas_mora_full.columns if '(30-150)' in col
+            ]
+            df_display_raw_30150 = df_tasas_mora_full[cols_30150].copy()
+            
+            # 2. RENOMBRAR COLUMNAS DE REPORTE: Eliminar el sufijo (30-150)
+            rename_map_30150 = {col: col.replace(' (30-150)', '') 
+                                for col in df_display_raw_30150.columns if '(30-150)' in col}
+            df_display_raw_30150.rename(columns=rename_map_30150, inplace=True)
+            
+            
+            # --- LÓGICA DE VISUALIZACIÓN COMPARTIDA ---
+            
+            def format_currency(val):
+                return f'{val:,.0f}'
+            def format_percent(val):
+                return f'{val:,.2f}%'
                 
-                try:
-                    col_date = pd.to_datetime(col_date_str + '-01')
-                except:
-                    continue
+            df_display_30150 = df_display_raw_30150.copy()
+            
+            # CREAR COLUMNA TEMPORAL DATETIME PARA LA LÓGICA DE CORTE
+            df_display_30150['Fecha Cohorte DATETIME'] = df_display_30150['Mes de Apertura'].apply(lambda x: x.normalize())
+            
+            # FORMATO DE LA COLUMNA DE DISPLAY A STRING
+            df_display_30150['Mes de Apertura'] = df_display_30150['Mes de Apertura'].dt.strftime('%Y-%m')
+            
+            tasa_cols_30150 = [col for col in df_display_30150.columns if col not in ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Fecha Cohorte DATETIME']]
 
-                # LÓGICA DE CORTE: Si la fecha de reporte es estrictamente menor a la de cohorte, es vacío.
-                if col_date < cohort_date: 
-                    df_display_890.loc[index, col] = '' 
-                else:
-                    df_display_890.loc[index, col] = format_percent(row[col])
+            for index, row in df_display_30150.iterrows():
+                cohort_date = row['Fecha Cohorte DATETIME'] # Usamos la columna temporal DATETIME para la comparación
+                
+                for col in tasa_cols_30150:
+                    col_date_str = col.split(' ')[0] 
+                    
+                    try:
+                        col_date = pd.to_datetime(col_date_str + '-01')
+                    except:
+                        continue
 
-        df_display_890.iloc[:, 1] = df_display_890.iloc[:, 1].apply(format_currency)
+                    # LÓGICA DE CORTE: Si la fecha de reporte es estrictamente menor a la de cohorte, es vacío.
+                    if col_date < cohort_date: 
+                        df_display_30150.loc[index, col] = '' 
+                    else:
+                        df_display_30150.loc[index, col] = format_percent(row[col])
 
-        # 🚨 SOLUCIÓN PARA EL FORMATO DE FECHA (Paso 2)
-        # 5. ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
-        df_display_890.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
-        
-        # --- CÁLCULO DE RESUMEN 8-90 ---
-        
-        saldo_col_raw = df_display_raw_890['Saldo Capital Total (Monto)']
-        rate_cols_raw = df_display_raw_890.iloc[:, 2:]
-        
-        avg_row = pd.Series(index=df_display_890.columns)
-        max_row = pd.Series(index=df_display_890.columns)
-        min_row = pd.Series(index=df_display_890.columns)
-        
-        avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
-        max_row.iloc[1] = format_currency(saldo_col_raw.max())
-        min_row.iloc[1] = format_currency(saldo_col_raw.min())
-        
-        for i, col in enumerate(df_display_890.columns[2:]):
-            rate_values = rate_cols_raw.iloc[:, i]
-            avg_row.iloc[i + 2] = format_percent(rate_values.mean())
-            max_row.iloc[i + 2] = format_percent(rate_values.max())
-            min_row.iloc[i + 2] = format_percent(rate_values.min())
-        
-        avg_row.iloc[0] = 'PROMEDIO'
-        max_row.iloc[0] = 'MÁXIMO'
-        min_row.iloc[0] = 'MÍNIMO'
-        
-        df_display_890.loc['MÁXIMO'] = max_row
-        df_display_890.loc['MÍNIMO'] = min_row
-        df_display_890.loc['PROMEDIO'] = avg_row
-        
-        # APLICAR ESTILOS
-        styler_890 = style_table(df_display_890)
-        st.dataframe(styler_890, hide_index=True)
+            df_display_30150.iloc[:, 1] = df_display_30150.iloc[:, 1].apply(format_currency)
+
+            # ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
+            df_display_30150.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
+
+            # --- CÁLCULO DE RESUMEN 30-150 ---
+            
+            saldo_col_raw = df_display_raw_30150['Saldo Capital Total (Monto)']
+            rate_cols_raw = df_display_raw_30150.iloc[:, 2:]
+            
+            avg_row = pd.Series(index=df_display_30150.columns)
+            max_row = pd.Series(index=df_display_30150.columns)
+            min_row = pd.Series(index=df_display_30150.columns)
+            
+            avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
+            max_row.iloc[1] = format_currency(saldo_col_raw.max())
+            min_row.iloc[1] = format_currency(saldo_col_raw.min())
+            
+            # El índice de las tasas ahora es correcto después de la eliminación de la columna
+            for i, col in enumerate(df_display_30150.columns[2:]):
+                rate_values = rate_cols_raw.iloc[:, i]
+                avg_row.iloc[i + 2] = format_percent(rate_values.mean())
+                max_row.iloc[i + 2] = format_percent(rate_values.max())
+                min_row.iloc[i + 2] = format_percent(rate_values.min())
+            
+            avg_row.iloc[0] = 'PROMEDIO'
+            max_row.iloc[0] = 'MÁXIMO'
+            min_row.iloc[0] = 'MÍNIMO'
+            
+            df_display_30150.loc['MÁXIMO'] = max_row
+            df_display_30150.loc['MÍNIMO'] = min_row
+            df_display_30150.loc['PROMEDIO'] = avg_row
+            
+            # APLICAR ESTILOS
+            styler_30150 = style_table(df_display_30150)
+            st.dataframe(styler_30150, hide_index=True)
+            
+            
+            # ----------------------------------------------------------------------------------
+            # --- 2. MOSTRAR NUEVA TABLA VINTAGE MORA 8-90 ---
+            # ----------------------------------------------------------------------------------
+            st.header("2. Vintage Mora 8-90")
+
+            # 1. AISLAR DATOS: Seleccionar solo columnas 8-90
+            cols_890 = ['Mes de Apertura', 'Saldo Capital Total (Monto)'] + [
+                col for col in df_tasas_mora_full.columns if '(8-90)' in col
+            ]
+            df_display_raw_890 = df_tasas_mora_full[cols_890].copy()
+            
+            # 2. RENOMBRAR COLUMNAS DE REPORTE: Eliminar el sufijo (8-90)
+            rename_map_890 = {col: col.replace(' (8-90)', '') 
+                              for col in df_display_raw_890.columns if '(8-90)' in col}
+            df_display_raw_890.rename(columns=rename_map_890, inplace=True)
+            
+            
+            # --- LÓGICA DE VISUALIZACIÓN COMPARTIDA (PARA 8-90) ---
+
+            df_display_890 = df_display_raw_890.copy()
+            
+            # CREAR COLUMNA TEMPORAL DATETIME PARA LA LÓGICA DE CORTE
+            df_display_890['Fecha Cohorte DATETIME'] = df_display_890['Mes de Apertura'].apply(lambda x: x.normalize())
+            
+            # FORMATO DE LA COLUMNA DE DISPLAY A STRING
+            df_display_890['Mes de Apertura'] = df_display_890['Mes de Apertura'].dt.strftime('%Y-%m')
+            
+            tasa_cols_890 = [col for col in df_display_890.columns if col not in ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Fecha Cohorte DATETIME']]
 
 
-    else:
-        st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")
+            for index, row in df_display_890.iterrows():
+                cohort_date = row['Fecha Cohorte DATETIME'] # Usamos la columna temporal DATETIME para la comparación
+                
+                for col in tasa_cols_890:
+                    col_date_str = col.split(' ')[0] 
+                    
+                    try:
+                        col_date = pd.to_datetime(col_date_str + '-01')
+                    except:
+                        continue
 
-except Exception as e:
-    st.error(f"Error al generar la tabla de Tasas de Mora: {e}")
+                    # LÓGICA DE CORTE: Si la fecha de reporte es estrictamente menor a la de cohorte, es vacío.
+                    if col_date < cohort_date: 
+                        df_display_890.loc[index, col] = '' 
+                    else:
+                        df_display_890.loc[index, col] = format_percent(row[col])
+
+            df_display_890.iloc[:, 1] = df_display_890.iloc[:, 1].apply(format_currency)
+
+            # ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
+            df_display_890.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
+            
+            # --- CÁLCULO DE RESUMEN 8-90 ---
+            
+            saldo_col_raw = df_display_raw_890['Saldo Capital Total (Monto)']
+            rate_cols_raw = df_display_raw_890.iloc[:, 2:]
+            
+            avg_row = pd.Series(index=df_display_890.columns)
+            max_row = pd.Series(index=df_display_890.columns)
+            min_row = pd.Series(index=df_display_890.columns)
+            
+            avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
+            max_row.iloc[1] = format_currency(saldo_col_raw.max())
+            min_row.iloc[1] = format_currency(saldo_col_raw.min())
+            
+            for i, col in enumerate(df_display_890.columns[2:]):
+                rate_values = rate_cols_raw.iloc[:, i]
+                avg_row.iloc[i + 2] = format_percent(rate_values.mean())
+                max_row.iloc[i + 2] = format_percent(rate_values.max())
+                min_row.iloc[i + 2] = format_percent(rate_values.min())
+            
+            avg_row.iloc[0] = 'PROMEDIO'
+            max_row.iloc[0] = 'MÁXIMO'
+            min_row.iloc[0] = 'MÍNIMO'
+            
+            df_display_890.loc['MÁXIMO'] = max_row
+            df_display_890.loc['MÍNIMO'] = min_row
+            df_display_890.loc['PROMEDIO'] = avg_row
+            
+            # APLICAR ESTILOS
+            styler_890 = style_table(df_display_890)
+            st.dataframe(styler_890, hide_index=True)
+
+
+        else:
+            st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")
+
+    except Exception as e:
+        # 🚨 LÍNEA DE DIAGNÓSTICO: Muestra el error de Python en detalle
+        st.error("¡Ha ocurrido un error inesperado al generar las tablas Vintage!")
+        st.exception(e)
+        
+with tab2:
+    # --- CONTENIDO DE LA PESTAÑA 2: CONFIGURACIÓN / PARÁMETROS ---
+    st.header("⚙️ Configuración Adicional")
+    st.write("Esta pestaña está lista para que añadas parámetros globales, como: configuración de ruta del archivo, selección de rango de fechas no filtrado por las 24 cohortes, o ajuste de los buckets de mora.")
+    
+    # Ejemplo de un widget en la nueva pestaña (puedes eliminarlo o modificarlo)
+    st.slider("Control de Ejemplo", 0, 100, 50)

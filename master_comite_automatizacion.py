@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from dateutil.relativedelta import relativedelta
 import matplotlib as mpl 
+# import altair as alt # Eliminado
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
 FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_automatizacion.xlsx'
@@ -36,7 +37,6 @@ def load_and_transform_data(file_path):
         df_master['fecha_cierre'] = pd.to_datetime(df_master['fecha_cierre'], errors='coerce')
 
         # W: Mes_BperturB (FIN.MES)
-        # Aseguramos que Mes_BperturB sea el día 1 del mes para una comparación limpia
         df_master['Mes_BperturB'] = df_master['mes_apertura'].dt.normalize().dt.to_period('M').dt.to_timestamp()
         
         df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
@@ -69,7 +69,6 @@ def load_and_transform_data(file_path):
         
         # --- COLUMNAS DE SEGUIMIENTO DE MORA 30-150 (C1 a C25) ---
         
-        # C1 (Mes de Antigüedad 0): APLICAMOS LÓGICA DE DIF_MES=0
         df_master['saldo_capital_total_c1'] = np.where(
             df_master['dif_mes'] == 0,
             df_master['saldo_capital_total_30150'], 
@@ -187,7 +186,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     return df_tasas
 
 
-# --- FUNCIÓN DE ESTILIZADO DE DATAFRAME (FORMATO CONDICIONAL) ---
+# --- FUNCIÓN DE ESTILIZADO (FORMATO CONDICIONAL) ---
 
 def clean_cell_to_float(val):
     if isinstance(val, str) and val.endswith('%'):
@@ -519,6 +518,8 @@ try:
         styler_890 = style_table(df_display_890)
         st.dataframe(styler_890, hide_index=True)
 
+
+        # NOTA: La sección "3. Gráficas de Comportamiento Individual" ha sido eliminada.
 
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")

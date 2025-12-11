@@ -305,6 +305,11 @@ if df_master.empty:
 # --- CREACIÓN DE PESTAÑAS (TABS) ---
 tab1, tab2 = st.tabs(["Análisis Vintage", "Configuración / Parámetros"])
 
+# Inicializamos una variable para almacenar los datos brutos de la cohorte
+# Esto es necesario porque el cálculo ocurre dentro de tab1
+df_display_raw_30150 = pd.DataFrame()
+
+
 with tab1:
     # --- CONTENIDO DE LA PESTAÑA 1: ANÁLISIS VINTAGE ---
     
@@ -313,29 +318,28 @@ with tab1:
         unique_cohort_dates = df_master['Mes_BperturB'].dropna().unique()
         sorted_cohort_dates = pd.Series(pd.to_datetime(unique_cohort_dates)).sort_values(ascending=False)
         last_24_cohorts = sorted_cohort_dates.iloc[:24]
-        df_master = df_master[df_master['Mes_BperturB'].isin(last_24_cohorts)].copy()
+        # Usamos df_filtered_master para el filtrado de 24 cohortes
+        df_filtered_master = df_master[df_master['Mes_BperturB'].isin(last_24_cohorts)].copy()
         
         if not last_24_cohorts.empty:
             max_date = last_24_cohorts.max().strftime('%Y-%m')
             min_date = last_24_cohorts.min().strftime('%Y-%m')
             st.info(f"Filtro aplicado: Mostrando solo las últimas **{len(last_24_cohorts)} cohortes** de apertura, desde **{min_date}** hasta **{max_date}**.")
         
-    if df_master.empty:
+    if 'df_filtered_master' not in locals() or df_filtered_master.empty:
         st.warning("El DataFrame maestro está vacío después de aplicar el filtro de las últimas 24 cohortes. Verifique que haya suficientes datos de cohorte.")
         st.stop()
-    # --- 🛑 FIN DEL FILTRO DE LAS 24 COHORTES 🛑 ---
-
-
+    
     # --- FILTROS LATERALES ---
     st.sidebar.header("Filtros Interactivos")
     st.sidebar.markdown("**Instrucciones:** Las selecciones a continuación filtran los datos mostrados en la tabla.")
 
     # 1. Filtro por UEN
-    uen_options = df_master['uen'].unique()
+    uen_options = df_filtered_master['uen'].unique()
     selected_uens = st.sidebar.multiselect("Selecciona UEN", uen_options, default=uen_options[:min(2, len(uen_options))])
 
     # 2. Filtro por Origen Limpio
-    origen_options = df_master['PR_Origen_Limpio'].unique()
+    origen_options = df_filtered_master['PR_Origen_Limpio'].unique()
     selected_origen = st.sidebar.multiselect("Selecciona Origen", origen_options, default=origen_options)
 
     if not selected_uens or not selected_origen:
@@ -343,9 +347,9 @@ with tab1:
         st.stop()
 
     # Aplicar filtros al DataFrame maestro
-    df_filtered = df_master[
-        (df_master['uen'].isin(selected_uens)) &
-        (df_master['PR_Origen_Limpio'].isin(selected_origen))
+    df_filtered = df_filtered_master[
+        (df_filtered_master['uen'].isin(selected_uens)) &
+        (df_filtered_master['PR_Origen_Limpio'].isin(selected_origen))
     ].copy()
 
     if df_filtered.empty:
@@ -370,7 +374,7 @@ with tab1:
             cols_30150 = ['Mes de Apertura', 'Saldo Capital Total (Monto)'] + [
                 col for col in df_tasas_mora_full.columns if '(30-150)' in col
             ]
-            df_display_raw_30150 = df_tasas_mora_full[cols_30150].copy()
+            df_display_raw_30150 = df_tasas_mora_full[cols_30150].copy() # <--- GUARDAMOS LA COPIA BRUTA AQUÍ
             
             # 2. RENOMBRAR COLUMNAS DE REPORTE: Eliminar el sufijo (30-150)
             rename_map_30150 = {col: col.replace(' (30-150)', '') 
@@ -414,9 +418,6 @@ with tab1:
 
             df_display_30150.iloc[:, 1] = df_display_30150.iloc[:, 1].apply(format_currency)
 
-            # ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
-            df_display_30150.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
-
             # --- CÁLCULO DE RESUMEN 30-150 ---
             
             saldo_col_raw = df_display_raw_30150['Saldo Capital Total (Monto)']
@@ -444,6 +445,9 @@ with tab1:
             df_display_30150.loc['MÁXIMO'] = max_row
             df_display_30150.loc['MÍNIMO'] = min_row
             df_display_30150.loc['PROMEDIO'] = avg_row
+            
+            # ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
+            df_display_30150.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
             
             # APLICAR ESTILOS
             styler_30150 = style_table(df_display_30150)
@@ -541,11 +545,39 @@ with tab1:
         # 🚨 LÍNEA DE DIAGNÓSTICO: Muestra el error de Python en detalle
         st.error("¡Ha ocurrido un error inesperado al generar las tablas Vintage!")
         st.exception(e)
-        
+
+
 with tab2:
     # --- CONTENIDO DE LA PESTAÑA 2: CONFIGURACIÓN / PARÁMETROS ---
-    st.header("⚙️ Configuración Adicional")
-    st.write("Esta pestaña está lista para que añadas parámetros globales, como: configuración de ruta del archivo, selección de rango de fechas no filtrado por las 24 cohortes, o ajuste de los buckets de mora.")
-    
-    # Ejemplo de un widget en la nueva pestaña (puedes eliminarlo o modificarlo)
-    st.slider("Control de Ejemplo", 0, 100, 50)
+    st.header("⚙️ Valores de Segunda Cohorte (Mora 30-150)")
+    st.write("Esta tabla muestra los valores de la tasa de mora para la **Segunda Cohorte** (`índice 1`) después de aplicar los filtros laterales (UEN/Origen).")
+
+    # Revisa si la variable df_display_raw_30150 fue generada y no está vacía
+    if not df_display_raw_30150.empty:
+        cohort_index = 1
+        
+        if len(df_display_raw_30150) > cohort_index:
+            
+            # 1. Obtener la Series de la segunda fila (Segunda Cohorte)
+            cohort_series = df_display_raw_30150.iloc[cohort_index]
+            
+            # 2. Convertir la Series a un DataFrame de 1xN para que Streamlit lo muestre bien
+            df_cohort_display = cohort_series.to_frame().T
+            
+            # 3. Formatear las columnas para mejor visualización
+            df_cohort_display.iloc[:, 1] = df_cohort_display.iloc[:, 1].apply(lambda x: f'{x:,.0f}')
+            
+            # Asegurar que las columnas de tasa tienen el formato % para la visualización
+            for col in df_cohort_display.columns[2:]:
+                df_cohort_display[col] = df_cohort_display[col].apply(lambda x: f'{x:,.2f}%')
+
+
+            st.dataframe(df_cohort_display, hide_index=True)
+            
+            st.markdown(f"**Cohorte Seleccionada:** {df_cohort_display.iloc[0]['Mes de Apertura']}")
+            
+        else:
+            st.warning("No hay suficientes cohortes (se requieren al menos 2) para mostrar la Segunda Cohorte.")
+            
+    else:
+        st.info("La tabla de Vintage debe ser cargada y filtrada en la pestaña 'Análisis Vintage' primero.")

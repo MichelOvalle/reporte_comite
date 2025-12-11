@@ -566,46 +566,60 @@ try:
         
         # --- GRÁFICA 1: SEGUNDA COHORTE (Mora 30-150) ---
         
-        cohort_index_30150 = 1 # Índice de la segunda cohorte
-        
-        if len(df_display_raw_30150) > cohort_index_30150:
+        try:
+            cohort_index_30150 = 1 # Índice de la segunda cohorte
             
-            # Obtener la Series de la fila (SEGURO)
-            df_cohort_row_30150 = df_display_raw_30150.iloc[cohort_index_30150]
-            
-            # Pasar la Series directamente a la función
-            chart_30150 = create_cohort_chart(df_cohort_row_30150, '30-150')
-            
-            if chart_30150:
-                 st.altair_chart(chart_30150, use_container_width=True)
+            if len(df_display_raw_30150) > cohort_index_30150:
+                
+                # Obtener la Series de la fila (SEGURO)
+                df_cohort_row_30150 = df_display_raw_30150.iloc[cohort_index_30150]
+                
+                # Pasar la Series directamente a la función
+                chart_30150 = create_cohort_chart(df_cohort_row_30150, '30-150')
+                
+                if chart_30150:
+                     st.altair_chart(chart_30150, use_container_width=True)
+                else:
+                     st.warning("La Segunda Cohorte (Mora 30-150) no tiene suficientes puntos de datos válidos para graficar.")
             else:
-                 st.warning("La Segunda Cohorte (Mora 30-150) no tiene suficientes puntos de datos válidos para graficar.")
-        else:
-            st.warning("Necesitas al menos dos cohortes disponibles para graficar la 'Segunda Cohorte' (Mora 30-150).")
+                st.warning("Necesitas al menos dos cohortes disponibles para graficar la 'Segunda Cohorte' (Mora 30-150).")
+            
+        except IndexError as e:
+            st.warning(f"Error de índice al intentar acceder a la Segunda Cohorte (Mora 30-150). Verifica la cantidad de datos filtrados. Detalle: {e}")
+        except Exception as e:
+            st.warning(f"Error inesperado al generar la gráfica de Mora 30-150. Detalle: {e}")
             
             
         # --- GRÁFICA 2: PRIMERA COHORTE (Mora 8-90) ---
         
-        cohort_index_890 = 0 # Índice de la primera cohorte
-        
-        if len(df_display_raw_890) > cohort_index_890:
+        try:
+            cohort_index_890 = 0 # Índice de la primera cohorte
             
-            # Obtener la Series de la fila (SEGURO)
-            df_cohort_row_890 = df_display_raw_890.iloc[cohort_index_890]
-            
-            # Pasar la Series directamente a la función
-            chart_890 = create_cohort_chart(df_cohort_row_890, '8-90')
-            
-            if chart_890:
-                st.altair_chart(chart_890, use_container_width=True)
+            if len(df_display_raw_890) > cohort_index_890:
+                
+                # Obtener la Series de la fila (SEGURO)
+                df_cohort_row_890 = df_display_raw_890.iloc[cohort_index_890]
+                
+                # Pasar la Series directamente a la función
+                chart_890 = create_cohort_chart(df_cohort_row_890, '8-90')
+                
+                if chart_890:
+                    st.altair_chart(chart_890, use_container_width=True)
+                else:
+                    st.warning("La Primera Cohorte (Mora 8-90) no tiene suficientes puntos de datos válidos para graficar.")
+
             else:
-                st.warning("La Primera Cohorte (Mora 8-90) no tiene suficientes puntos de datos válidos para graficar.")
+                st.warning("No hay cohortes disponibles para graficar la Primera Cohorte (Mora 8-90).")
 
-        else:
-            st.warning("No hay cohortes disponibles para graficar la Primera Cohorte (Mora 8-90).")
-
+        except IndexError as e:
+             st.warning(f"Error de índice al intentar acceder a la Primera Cohorte (Mora 8-90). Verifica la cantidad de datos filtrados. Detalle: {e}")
+        except Exception as e:
+            st.warning(f"Error inesperado al generar la gráfica de Mora 8-90. Detalle: {e}")
+            
+            
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")
 
 except Exception as e:
+    # Este es el error global, que probablemente ya no debería capturar el error de indexación.
     st.error(f"Error al generar la tabla de Tasas de Mora o las gráficas: {e}")

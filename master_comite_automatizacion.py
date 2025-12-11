@@ -588,8 +588,11 @@ with tab2:
     df_long_filtered = df_long[df_long['Mes de Apertura'].isin(cohortes_a_mostrar)].copy()
     
     if not df_long_filtered.empty:
+        # CORRECCIÓN CLAVE: Creamos la columna de etiqueta de fecha ANTES de derretir (melt)
+        df_long_filtered['Cohorte Etiqueta'] = df_long_filtered['Mes de Apertura'].dt.strftime('%Y-%m')
+        
         df_long_melt = df_long_filtered.melt(
-            id_vars='Mes de Apertura',
+            id_vars=['Mes de Apertura', 'Cohorte Etiqueta'],
             value_vars=vintage_cols,
             var_name='Mes de Reporte',
             value_name='Tasa (%)'
@@ -598,8 +601,10 @@ with tab2:
         # 2. Limpiar y calcular Antigüedad
         df_long_melt.dropna(subset=['Tasa (%)'], inplace=True)
         
-        # Eliminar filas donde la tasa es 0 o NaN después de la transformación
-        df_long_melt = df_long_melt[df_long_melt['Tasa (%)'].astype(float) > 0.0001].copy()
+        # Eliminamos filas donde la tasa es 0 o NaN después de la transformación
+        # Convertimos la tasa a float aquí para el filtro, ya que podría contener objetos np.nan
+        df_long_melt['Tasa (%)'] = pd.to_numeric(df_long_melt['Tasa (%)'], errors='coerce')
+        df_long_melt.dropna(subset=['Tasa (%)'], inplace=True)
 
         # Calcular Antigüedad (Mes de Reporte es el nombre de la columna que contiene la fecha YYYY-MM)
         df_long_melt['Fecha Reporte'] = df_long_melt['Mes de Reporte'].apply(lambda x: pd.to_datetime(x.split(' ')[0] + '-01', errors='coerce'))
@@ -620,8 +625,9 @@ with tab2:
         chart1 = alt.Chart(df_long_melt).mark_line(point=True).encode(
             x=alt.X('Antigüedad (Meses)', type='quantitative', title='Antigüedad de la Cohorte (Meses)', axis=alt.Axis(tickMinStep=1)),
             y=alt.Y('Tasa (%)', type='quantitative', title='Tasa de Mora (%)', axis=alt.Axis(format='.2f')),
-            color=alt.Color('Mes de Apertura', type='nominal', title='Cohorte'),
-            tooltip=['Mes de Apertura', 'Antigüedad (Meses)', alt.Tooltip('Tasa (%)', format='.2f')]
+            # CORRECCIÓN: Usamos la columna 'Cohorte Etiqueta' como nominal para la leyenda
+            color=alt.Color('Cohorte Etiqueta', type='nominal', title='Cohorte (Mes Apertura)'),
+            tooltip=['Cohorte Etiqueta', 'Antigüedad (Meses)', alt.Tooltip('Tasa (%)', format='.2f')]
         ).properties(
             title='Curvas Vintage de Mora 30-150'
         ).interactive()
@@ -655,6 +661,7 @@ with tab2:
         
         # --- Generar Gráfica Altair ---
         chart2 = alt.Chart(df_chart_data_c2).mark_line(point=True).encode(
+            # Corregido: Usamos 'temporal' y 'quantitative'
             x=alt.X('Mes de Apertura', type='temporal', title='Mes de Apertura de la Cohorte', axis=alt.Axis(format='%Y-%m')),
             y=alt.Y(new_col_name, type='quantitative', title='Tasa de Mora (%)', axis=alt.Axis(format='.2f')),
             tooltip=['Mes de Apertura', alt.Tooltip(new_col_name, format='.2f')]
@@ -686,12 +693,13 @@ with tab2:
     df_volumen = df_filtered.groupby(['Mes_BperturB', 'PR_Origen_Limpio'])['saldo_capital_total'].sum().reset_index()
     df_volumen.rename(columns={'Mes_BperturB': 'Mes de Apertura', 'saldo_capital_total': 'Saldo Capital Total'}, inplace=True)
     
-    # 2. Formato de fecha
-    df_volumen['Mes de Apertura'] = df_volumen['Mes de Apertura'].dt.strftime('%Y-%m')
+    # 2. Formato de fecha para Altair
+    # Usamos el formato datetime para el eje X para que Altair lo maneje como una serie temporal
     
     # 3. Generar Gráfica Stacked Bar
     chart3 = alt.Chart(df_volumen).mark_bar().encode(
-        x=alt.X('Mes de Apertura', type='nominal', title='Mes de Apertura'),
+        # Mes de Apertura es Datetime (temporal) para Altair
+        x=alt.X('Mes de Apertura', type='temporal', title='Mes de Apertura', axis=alt.Axis(format='%Y-%m')),
         y=alt.Y('Saldo Capital Total', type='quantitative', title='Saldo Capital Total', axis=alt.Axis(format='$,.0f')),
         color=alt.Color('PR_Origen_Limpio', type='nominal', title='Origen'),
         tooltip=['Mes de Apertura', 'PR_Origen_Limpio', alt.Tooltip('Saldo Capital Total', format='$,.0f')]

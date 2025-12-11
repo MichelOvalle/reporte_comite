@@ -96,7 +96,7 @@ def load_and_transform_data(file_path):
 
         # --- NUEVAS COLUMNAS DE SEGUIMIENTO DE MORA 8-90 (890_C1 a 890_C25) ---
         
-        # 🚨 Lógica Actualizada para C1: SI(dif_meses = 0, saldo_capital_total_890, 0)
+        # Lógica Actualizada para C1: SI(dif_meses = 0, saldo_capital_total_890, 0)
         df_master['saldo_capital_total_890_c1'] = np.where(
             df_master['dif_mes'] == 0,
             df_master['saldo_capital_total_890'],
@@ -443,7 +443,8 @@ try:
                 except:
                     continue
 
-                if col_date <= cohort_date: 
+                # 🚨 LÓGICA DE CORTE ACTUALIZADA: Si la fecha de reporte es menor a la de cohorte, es vacío.
+                if col_date < cohort_date: 
                     df_display_30150.loc[index, col] = '' 
                 else:
                     df_display_30150.loc[index, col] = format_percent(row[col])
@@ -452,7 +453,6 @@ try:
 
         # --- CÁLCULO DE RESUMEN 30-150 ---
         
-        # Para el cálculo de resumen usamos df_display_raw_30150 (sin strings y sin NaN del corte)
         saldo_col_raw = df_display_raw_30150['Saldo Capital Total (Monto)']
         rate_cols_raw = df_display_raw_30150.iloc[:, 2:]
         
@@ -518,7 +518,8 @@ try:
                 except:
                     continue
 
-                if col_date <= cohort_date: 
+                # 🚨 LÓGICA DE CORTE ACTUALIZADA: Si la fecha de reporte es menor a la de cohorte, es vacío.
+                if col_date < cohort_date: 
                     df_display_890.loc[index, col] = '' 
                 else:
                     df_display_890.loc[index, col] = format_percent(row[col])

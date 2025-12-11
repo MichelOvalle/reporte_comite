@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from dateutil.relativedelta import relativedelta
 import matplotlib as mpl 
-import altair as alt # <-- LIBRERÍA AÑADIDA
+import altair as alt 
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
 FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_automatizacion.xlsx'
@@ -577,38 +577,42 @@ with tab2:
             rate_column_name = df_display_raw_30150.columns[target_column_index]
             
             # 2. Seleccionar solo las columnas Mes de Apertura (Índice 0) y la columna de tasa requerida (Índice 3)
-            df_cohort_column = df_display_raw_30150.iloc[:, [0, target_column_index]].copy()
+            # Aseguramos que Mes de Apertura sea tipo Datetime para la gráfica
+            df_chart_data = df_display_raw_30150.iloc[:, [0, target_column_index]].copy()
             
             # Renombrar para claridad
             new_col_name = f'Tasa Mora Vintage ({rate_column_name})'
-            df_cohort_column.rename(columns={rate_column_name: new_col_name}, inplace=True)
+            df_chart_data.rename(columns={rate_column_name: new_col_name}, inplace=True)
             
             # 3. Preparar los datos para la gráfica (convertir tasa a float para Altair)
-            # Altair manejará el formato de porcentaje, pero necesita un float
-            df_chart_data = df_cohort_column.copy()
             df_chart_data[new_col_name] = df_chart_data[new_col_name].astype(float)
             
             # --- 4. Generar Gráfica Altair ---
             chart = alt.Chart(df_chart_data).mark_line(point=True).encode(
-                x=alt.X('Mes de Apertura', type='T', title='Mes de Apertura de la Cohorte'),
-                y=alt.Y(new_col_name, type='Q', title='Tasa de Mora (%)', axis=alt.Axis(format='.2f')),
+                # CORRECCIÓN: Usamos 'temporal' y 'quantitative' en lugar de 'T' y 'Q'
+                x=alt.X('Mes de Apertura', type='temporal', title='Mes de Apertura de la Cohorte', axis=alt.Axis(format='%Y-%m')),
+                y=alt.Y(new_col_name, type='quantitative', title='Tasa de Mora (%)', axis=alt.Axis(format='.2f')),
                 tooltip=['Mes de Apertura', alt.Tooltip(new_col_name, format='.2f')]
             ).properties(
                 title=f"Evolución de Tasa de Mora Vintage: {rate_column_name}"
             ).interactive()
             
             st.altair_chart(chart, use_container_width=True)
-
+            
+            st.markdown(f"Esta gráfica muestra la tendencia de la tasa de mora en el punto **$C_2$** para las cohortes filtradas. ") # Trigger de imagen conceptual de Vintage
+            
             # --- 5. Mostrar Tabla de Datos (Formato String) ---
             st.markdown("### Datos Detallados")
+            
+            # Crear una copia para la tabla para aplicar formatos de string
+            df_cohort_column = df_chart_data.copy()
             
             # Formatear la columna de Mes de Apertura a String para la tabla
             df_cohort_column['Mes de Apertura'] = df_cohort_column['Mes de Apertura'].dt.strftime('%Y-%m')
             
             # Formatear la columna de Tasa de Mora a porcentaje String para la tabla
             for col in [new_col_name]:
-                # Usamos los datos originales de float para formatear a string con %
-                df_cohort_column[col] = df_chart_data[col].apply(lambda x: f'{x:,.2f}%')
+                df_cohort_column[col] = df_cohort_column[col].apply(lambda x: f'{x:,.2f}%')
 
 
             st.dataframe(df_cohort_column, hide_index=True)

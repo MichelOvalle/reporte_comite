@@ -156,8 +156,8 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # 3. Preparación y cálculo de la Tasa de Mora
     
-    # Asegurar que 'Mes de Apertura' es Datetime antes de continuar
-    df_summary['Mes de Apertura'] = pd.to_datetime(df_summary['Mes de Apertura'])
+    # 🚨 SOLUCIÓN: Garantizar que 'Mes de Apertura' es Datetime antes de hacer slicing.
+    df_summary['Mes de Apertura'] = pd.to_datetime(df_summary[time_column])
     
     # Creamos el DataFrame de tasas con las columnas de saldos base (que dejaremos como montos)
     df_tasas = df_summary[['Mes de Apertura', 'saldo_capital_total', 'saldo_capital_total_30150', 'saldo_capital_total_890']].copy()
@@ -265,8 +265,7 @@ try:
     df_tasas_mora = calculate_saldo_consolidado(df_filtered) 
 
     if not df_tasas_mora.empty:
-        # Formato de la Fecha (CORRECCIÓN FINAL APLICADA AQUÍ)
-        # Convertimos la columna Datetime a formato de string para Streamlit.
+        # Formato de la Fecha (La corrección asegura que esto funcione)
         df_tasas_mora['Mes de Apertura'] = df_tasas_mora['Mes de Apertura'].dt.strftime('%Y-%m')
 
         # Formato de moneda para los montos y porcentaje para las tasas

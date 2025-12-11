@@ -204,8 +204,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     # 5. Ordenar por fecha de cohorte (ASCENDENTE: más antiguo primero)
     df_tasas = df_tasas.sort_values('Mes de Apertura', ascending=True)
     
-    # 6. Renombrar la columna de Saldo Capital (¡Dejamos el nombre interno para la visualización!)
-    # Esto es crucial para que el Key Error no aparezca al referenciarla en el bloque de Streamlit.
+    # 6. Renombrar la columna de Saldo Capital
     df_tasas.rename(columns={'saldo_capital_total': 'Saldo Capital Total (Monto)'}, inplace=True)
 
     return df_tasas
@@ -388,34 +387,44 @@ if df_filtered.empty:
 st.header("1. Vintage Mora 30-150")
 
 try:
-    # Calcular la Tabla Consolidada y las Tasas
-    df_tasas_mora = calculate_saldo_consolidado(df_filtered) 
+    # Calcular la Tabla Consolidada y las Tasas (Incluye 30-150 y 8-90)
+    df_tasas_mora_full = calculate_saldo_consolidado(df_filtered) 
+    
+    # ----------------------------------------------------------------------------------
+    # --- 1. MOSTRAR VINTAGE MORA 30-150 (Principal) ---
+    # ----------------------------------------------------------------------------------
 
-    if not df_tasas_mora.empty:
-        # 1. Crear el DataFrame de Display y aplicar el formato de fecha de Apertura
-        df_display_raw = df_tasas_mora.copy()
+    if not df_tasas_mora_full.empty:
         
-        # Aquí la columna de Saldo ya se llama 'Saldo Capital Total (Monto)'
-
+        # 1. AISLAR DATOS: Seleccionar solo columnas 30-150
+        cols_30150 = ['Mes de Apertura', 'Saldo Capital Total (Monto)'] + [
+            col for col in df_tasas_mora_full.columns if '(30-150)' in col
+        ]
+        df_display_raw_30150 = df_tasas_mora_full[cols_30150].copy()
+        
+        # 2. RENOMBRAR COLUMNAS DE REPORTE: Eliminar el sufijo (30-150)
+        rename_map_30150 = {col: col.replace(' (30-150)', '') 
+                            for col in df_display_raw_30150.columns if '(30-150)' in col}
+        df_display_raw_30150.rename(columns=rename_map_30150, inplace=True)
+        
+        
+        # --- LÓGICA DE VISUALIZACIÓN COMPARTIDA ---
+        
         # Formato de moneda para los montos y porcentaje para las tasas
         def format_currency(val):
             return f'{val:,.0f}'
         def format_percent(val):
             return f'{val:,.2f}%'
-        
-        # 2. Aplicar la lógica de corte (Mes de Apertura > Mes de Columna) y formato de string
-        df_display = df_display_raw.copy()
-        tasa_cols = df_display.columns[2:]
-
-        for index, row in df_display.iterrows():
-            cohort_date = row['Mes de Apertura'] # Es de tipo Datetime
-            cohort_date_str = cohort_date.strftime('%Y-%m')
-
-            # Reemplazar la fecha Datetime por la cadena formateada en df_display
-            df_display.loc[index, 'Mes de Apertura'] = cohort_date_str
             
-            for col in tasa_cols:
-                # El nombre de la columna es 'AAAA-MM (X-Y)'
+        # Aplicamos corte, formato y resumen para 30-150
+        df_display_30150 = df_display_raw_30150.copy()
+        tasa_cols_30150 = df_display_30150.columns[2:]
+
+        for index, row in df_display_30150.iterrows():
+            cohort_date = row['Mes de Apertura']
+            df_display_30150.loc[index, 'Mes de Apertura'] = cohort_date.strftime('%Y-%m') # Formatear fecha de cohorte
+            
+            for col in tasa_cols_30150:
                 col_date_str = col.split(' ')[0] 
                 
                 try:
@@ -423,63 +432,123 @@ try:
                 except:
                     continue
 
-                # Usamos la columna de fecha Datetime para la comparación
                 if col_date <= cohort_date: 
-                    # Corte: Asignamos string vacío
-                    df_display.loc[index, col] = '' 
+                    df_display_30150.loc[index, col] = '' 
                 else:
-                    # Aplicamos formato de porcentaje
-                    df_display.loc[index, col] = format_percent(row[col])
+                    df_display_30150.loc[index, col] = format_percent(row[col])
 
-        # Formatear la columna de Saldo Capital Total (Monto)
-        df_display.iloc[:, 1] = df_display.iloc[:, 1].apply(format_currency)
+        df_display_30150.iloc[:, 1] = df_display_30150.iloc[:, 1].apply(format_currency)
+
+        # --- CÁLCULO DE RESUMEN 30-150 ---
         
-        # --- CALCULAR Y AÑADIR LAS FILAS DE RESUMEN (MÁXIMO, MÍNIMO, PROMEDIO) ---
+        # Para el cálculo de resumen usamos df_display_raw_30150 (sin strings y sin NaN del corte)
+        saldo_col_raw = df_display_raw_30150['Saldo Capital Total (Monto)']
+        rate_cols_raw = df_display_raw_30150.iloc[:, 2:]
         
-        # Crear filas de resumen como Series
-        avg_row = pd.Series(index=df_display.columns)
-        max_row = pd.Series(index=df_display.columns)
-        min_row = pd.Series(index=df_display.columns)
+        avg_row = pd.Series(index=df_display_30150.columns)
+        max_row = pd.Series(index=df_display_30150.columns)
+        min_row = pd.Series(index=df_display_30150.columns)
         
-        # Obtener las columnas numéricas originales (para promedios/máx/mín exactos)
-        # Accedemos por nombre de columna
-        saldo_col_name = 'Saldo Capital Total (Monto)'
-        saldo_col_raw = df_tasas_mora[saldo_col_name]
-        rate_cols_raw = df_tasas_mora.iloc[:, 2:]
+        avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
+        max_row.iloc[1] = format_currency(saldo_col_raw.max())
+        min_row.iloc[1] = format_currency(saldo_col_raw.min())
         
-        # SALDO CAPITAL TOTAL (Monto - Índice 1)
-        avg_row[saldo_col_name] = format_currency(saldo_col_raw.mean())
-        max_row[saldo_col_name] = format_currency(saldo_col_raw.max())
-        min_row[saldo_col_name] = format_currency(saldo_col_raw.min())
-        
-        # TASAS DE MORA (Índice 2 en adelante)
-        for i, col in enumerate(tasa_cols):
+        for i, col in enumerate(tasa_cols_30150):
             rate_values = rate_cols_raw.iloc[:, i]
-            
-            avg_rate = rate_values.mean()
-            max_rate = rate_values.max()
-            min_rate = rate_values.min()
-            
-            avg_row[col] = format_percent(avg_rate)
-            max_row[col] = format_percent(max_rate)
-            min_row[col] = format_percent(min_rate)
+            avg_row.iloc[i + 2] = format_percent(rate_values.mean())
+            max_row.iloc[i + 2] = format_percent(rate_values.max())
+            min_row.iloc[i + 2] = format_percent(rate_values.min())
         
-        # Etiquetas
         avg_row.iloc[0] = 'PROMEDIO'
         max_row.iloc[0] = 'MÁXIMO'
         min_row.iloc[0] = 'MÍNIMO'
         
-        # Añadir las filas al DataFrame de visualización
-        df_display.loc['MÁXIMO'] = max_row
-        df_display.loc['MÍNIMO'] = min_row
-        df_display.loc['PROMEDIO'] = avg_row
+        df_display_30150.loc['MÁXIMO'] = max_row
+        df_display_30150.loc['MÍNIMO'] = min_row
+        df_display_30150.loc['PROMEDIO'] = avg_row
+        
+        # APLICAR ESTILOS
+        styler_30150 = style_table(df_display_30150)
+        st.dataframe(styler_30150, hide_index=True)
+        
+        # ----------------------------------------------------------------------------------
+        # --- 2. MOSTRAR NUEVA TABLA VINTAGE MORA 8-90 ---
+        # ----------------------------------------------------------------------------------
+        st.header("2. Vintage Mora 8-90")
+
+        # 1. AISLAR DATOS: Seleccionar solo columnas 8-90
+        cols_890 = ['Mes de Apertura', 'Saldo Capital Total (Monto)'] + [
+            col for col in df_tasas_mora_full.columns if '(8-90)' in col
+        ]
+        df_display_raw_890 = df_tasas_mora_full[cols_890].copy()
+        
+        # 2. RENOMBRAR COLUMNAS DE REPORTE: Eliminar el sufijo (8-90)
+        rename_map_890 = {col: col.replace(' (8-90)', '') 
+                          for col in df_display_raw_890.columns if '(8-90)' in col}
+        df_display_raw_890.rename(columns=rename_map_890, inplace=True)
         
         
-        # 4. APLICAR ESTILOS CON STYLER
-        styler = style_table(df_display)
+        # --- LÓGICA DE VISUALIZACIÓN COMPARTIDA (PARA 8-90) ---
+
+        df_display_890 = df_display_raw_890.copy()
+        tasa_cols_890 = df_display_890.columns[2:]
+
+        for index, row in df_display_890.iterrows():
+            cohort_date = row['Mes de Apertura']
+            # La columna 'Mes de Apertura' ya fue formateada a string en el paso anterior, 
+            # pero aquí necesitamos el valor Datetime original para la comparación. 
+            # Como df_display_raw_890 es una copia de df_tasas_mora_full (cuyas columnas de fecha no se modificaron),
+            # usamos el valor de la columna 'Mes de Apertura' para la comparación.
+            
+            # Formatear la fecha de cohorte a string para la visualización
+            df_display_890.loc[index, 'Mes de Apertura'] = cohort_date.strftime('%Y-%m')
+            
+            for col in tasa_cols_890:
+                col_date_str = col.split(' ')[0] 
+                
+                try:
+                    col_date = pd.to_datetime(col_date_str + '-01')
+                except:
+                    continue
+
+                if col_date <= cohort_date: 
+                    df_display_890.loc[index, col] = '' 
+                else:
+                    df_display_890.loc[index, col] = format_percent(row[col])
+
+        df_display_890.iloc[:, 1] = df_display_890.iloc[:, 1].apply(format_currency)
         
-        # Renderizamos en Streamlit
-        st.dataframe(styler, hide_index=True)
+        # --- CÁLCULO DE RESUMEN 8-90 ---
+        
+        saldo_col_raw = df_display_raw_890['Saldo Capital Total (Monto)']
+        rate_cols_raw = df_display_raw_890.iloc[:, 2:]
+        
+        avg_row = pd.Series(index=df_display_890.columns)
+        max_row = pd.Series(index=df_display_890.columns)
+        min_row = pd.Series(index=df_display_890.columns)
+        
+        avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
+        max_row.iloc[1] = format_currency(saldo_col_raw.max())
+        min_row.iloc[1] = format_currency(saldo_col_raw.min())
+        
+        for i, col in enumerate(tasa_cols_890):
+            rate_values = rate_cols_raw.iloc[:, i]
+            avg_row.iloc[i + 2] = format_percent(rate_values.mean())
+            max_row.iloc[i + 2] = format_percent(rate_values.max())
+            min_row.iloc[i + 2] = format_percent(rate_values.min())
+        
+        avg_row.iloc[0] = 'PROMEDIO'
+        max_row.iloc[0] = 'MÁXIMO'
+        min_row.iloc[0] = 'MÍNIMO'
+        
+        df_display_890.loc['MÁXIMO'] = max_row
+        df_display_890.loc['MÍNIMO'] = min_row
+        df_display_890.loc['PROMEDIO'] = avg_row
+        
+        # APLICAR ESTILOS
+        styler_890 = style_table(df_display_890)
+        st.dataframe(styler_890, hide_index=True)
+
 
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")

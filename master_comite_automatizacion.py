@@ -204,38 +204,29 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
 def clean_cell_to_float(val):
     if isinstance(val, str) and val.endswith('%'):
         try:
-            # Quitamos % y coma, y convertimos a float
             return float(val.replace('%', '').replace(',', ''))
         except ValueError:
             return np.nan 
-    return np.nan # Si es vacío ('') o no es un porcentaje válido, retorna NaN
+    return np.nan 
 
 # Función que aplica el gradiente a una fila de tasas
 def apply_gradient_by_row(row):
     """Aplica el gradiente a una Series (fila) de tasas, usando mapeo CSS."""
     
-    # 1. Creamos una copia de los valores numéricos de la fila (solo tasas)
-    # Excluyendo Mes y Saldo (primeras dos columnas)
     numeric_rates = row.iloc[2:].apply(clean_cell_to_float).dropna()
     
-    # Inicializar el estilo de la fila a vacío
     styles = [''] * len(row)
     
     if len(numeric_rates) < 2:
-        # Necesitas al menos dos valores para una escala de gradiente.
         return styles
 
-    # 2. Generar la paleta de colores de Matplotlib (Rojo=Alto/Malo)
     cmap = mpl.cm.get_cmap('RdYlGn_r')
     
     v_min = numeric_rates.min()
     v_max = numeric_rates.max()
     
-    # Si todos los valores son iguales, el gradiente no es informativo, solo ponemos un color.
     if v_min == v_max:
-        # Usaremos el color del valor central de la paleta
         color_rgb = cmap(0.5)
-        # Aplicamos un color neutro (celeste claro) para valores iguales
         neutral_style = f'background-color: rgba({int(color_rgb[0]*255)}, {int(color_rgb[1]*255)}, {int(color_rgb[2]*255)}, 0.5); text-align: center;'
         
         for col_name in numeric_rates.index:
@@ -243,22 +234,16 @@ def apply_gradient_by_row(row):
             styles[col_loc] = neutral_style
         return styles
 
-
-    # 3. Mapear los valores numéricos a colores CSS
     norm = mpl.colors.Normalize(v_min, v_max)
     
     for col_index, val in numeric_rates.items():
-        # Calcular el color (tupla RGBA)
         rgba = cmap(norm(val))
         
-        # Convertir RGBA a color CSS
         style_color = f'background-color: rgba({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)}, 1.0); text-align: center;'
 
-        # Encontrar la ubicación de la columna de tasa en la fila completa
         col_loc = row.index.get_loc(col_index)
         styles[col_loc] = style_color
     
-    # Devolver el array completo de estilos CSS para la fila
     return styles
 
 
@@ -269,12 +254,14 @@ def style_table(df_display):
     
     styler = df_display.style
     
-    # 🚨 1. ESTILOS PARA LOS ENCABEZADOS (TÍTULOS)
+    # 🚨 1. ESTILOS PARA LOS ENCABEZADOS (TÍTULOS) - CORRECCIÓN APLICADA AQUÍ
+    # Se utiliza una combinación de .set_table_styles para TH y .set_properties para asegurar las negritas.
     styler = styler.set_table_styles([
+        # Apunta al elemento de encabezado (th) para el color de fondo y negrita
         {'selector': 'th', 
-         'props': [('background-color', '#ADD8E6'), # Celeste claro (LightBlue)
+         'props': [('background-color', '#ADD8E6'), 
                    ('color', 'black'),              
-                   ('font-weight', 'bold'),         # Negritas
+                   ('font-weight', 'bold'),         
                    ('text-align', 'center')]}       
     ], overwrite=False) 
     
@@ -282,7 +269,8 @@ def style_table(df_display):
     styler = styler.apply(
         apply_gradient_by_row, 
         axis=1, 
-        subset=df_display.columns # Aplicamos a todas las columnas, pero la función interna filtra
+        # Es crucial aplicar a df_display.columns, la función interna hace el subset
+        subset=df_display.columns
     )
 
     # 3. Aplicar formato de texto y negritas a las celdas de datos

@@ -255,15 +255,9 @@ def style_table(df_display):
     
     styler = df_display.style
     
-    # 🚨 1. ESTILOS PARA LOS ENCABEZADOS (TÍTULOS) - USO DE !important Y SELECTOR 'th'
-    # Intentamos sobrescribir el estilo de Streamlit con mayor fuerza.
-    styler = styler.set_table_styles([
-        {'selector': 'th', 
-         'props': [('background-color', '#ADD8E6 !important'), 
-                   ('color', 'black !important'),              
-                   ('font-weight', 'bold !important'),         
-                   ('text-align', 'center !important')]}       
-    ], overwrite=False) 
+    # 🚨 1. ESTILOS PARA LOS ENCABEZADOS (TÍTULOS) - SE UTILIZA CSS INYECTADO GLOBALMENTE
+    # Se añade un estilo base para la tabla, pero la inyección de CSS fuera de esta función 
+    # es la que realmente coloreará los encabezados.
     
     # 2. Aplicar el gradiente fila por fila (HEATMAP)
     styler = styler.apply(
@@ -295,6 +289,21 @@ df_master = load_and_transform_data(FILE_PATH)
 # --- 2. INTERFAZ DE STREAMLIT ---
 
 st.set_page_config(layout="wide")
+
+# 🚨 SOLUCIÓN PARA EL ENCABEZADO: INYECTAR CSS GLOBALMENTE
+# Usamos el selector CSS para apuntar a los encabezados dentro del contenedor Streamlit Dataframe
+HEADER_CSS = """
+<style>
+/* El selector más específico para las celdas de encabezado de Pandas/Streamlit */
+.stDataFrame th {
+    background-color: #ADD8E6 !important; /* Celeste */
+    color: black !important;
+    font-weight: bold !important;
+    text-align: center !important;
+}
+</style>
+"""
+st.markdown(HEADER_CSS, unsafe_allow_html=True)
 st.title("📊 Tasa de Mora por Cohorte (Análisis Vintage)")
 
 if df_master.empty:

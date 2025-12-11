@@ -13,8 +13,9 @@ SHEET_EJERCICIO = 'ejercicio'
 # --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA ---
 @st.cache_data
 def load_and_transform_data(file_path):
-    """Carga los datos y aplica las transformaciones necesarias, incluyendo las columnas C1 a C25, CAPITAL_C1 a CAPITAL_C25 y las nuevas 890_C1 a 890_C25."""
+    """Carga los datos y aplica las transformaciones necesarias, incluyendo la nueva columna 'nombre_sucursal'."""
     try:
+        # Nota: pd.read_excel cargará automáticamente la columna W ('nombre_sucursal')
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
         
         buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
@@ -122,6 +123,9 @@ def load_and_transform_data(file_path):
                 df_master['saldo_capital_total'], 
                 0
             )
+            
+        # Limpieza de la nueva columna (por si acaso)
+        df_master['nombre_sucursal'] = df_master['nombre_sucursal'].astype(str).str.strip().replace('nan', np.nan)
         
         return df_master
 
@@ -348,14 +352,20 @@ with tab1:
     origen_options = df_filtered_master['PR_Origen_Limpio'].unique()
     selected_origen = st.sidebar.multiselect("Selecciona Origen", origen_options, default=origen_options)
 
-    if not selected_uens or not selected_origen:
-        st.warning("Por favor, selecciona al menos una UEN y un Origen en el panel lateral.")
+    # 3. Filtro por Sucursal (¡NUEVO FILTRO!)
+    sucursal_options = df_filtered_master['nombre_sucursal'].dropna().unique()
+    selected_sucursales = st.sidebar.multiselect("Selecciona Sucursal", sucursal_options, default=sucursal_options)
+
+
+    if not selected_uens or not selected_origen or not selected_sucursales:
+        st.warning("Por favor, selecciona al menos una opción en todos los filtros del panel lateral.")
         st.stop()
 
     # Aplicar filtros al DataFrame maestro. ESTA VARIABLE df_filtered se usará en tab2 para el gráfico de volumen.
     df_filtered = df_filtered_master[
         (df_filtered_master['uen'].isin(selected_uens)) &
-        (df_filtered_master['PR_Origen_Limpio'].isin(selected_origen))
+        (df_filtered_master['PR_Origen_Limpio'].isin(selected_origen)) &
+        (df_filtered_master['nombre_sucursal'].isin(selected_sucursales)) # <-- APLICANDO EL NUEVO FILTRO
     ].copy()
 
     if df_filtered.empty:

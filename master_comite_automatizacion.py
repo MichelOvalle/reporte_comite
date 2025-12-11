@@ -581,14 +581,17 @@ with tab2:
             for col in df_cohort_display.columns[2:]:
                 # Necesitamos un try/except simple aquí si el valor no es un float antes de formatear
                 try:
-                    df_cohort_display[col] = df_cohort_display[col].apply(lambda x: f'{x:,.2f}%')
+                    df_cohort_display[col] = df_cohort_display[col].astype(float).apply(lambda x: f'{x:,.2f}%')
                 except TypeError:
-                     df_cohort_display[col] = df_cohort_display[col].astype(float).apply(lambda x: f'{x:,.2f}%')
+                     # Si ya es una cadena o algo no convertible, lo dejamos como está o mostramos un guion
+                     df_cohort_display[col] = df_cohort_display[col].apply(lambda x: x if isinstance(x, str) else "-")
 
 
             st.dataframe(df_cohort_display, hide_index=True)
             
-            st.markdown(f"**Cohorte Seleccionada:** {df_cohort_display.iloc[0]['Mes de Apertura'].iloc[0]}")
+            # CORRECCIÓN DE ERROR: Eliminamos el segundo .iloc[0] innecesario.
+            cohort_date_value = df_cohort_display.iloc[0]['Mes de Apertura']
+            st.markdown(f"**Cohorte Seleccionada:** {cohort_date_value}")
             
         else:
             st.warning("No hay suficientes cohortes (se requieren al menos 2) para mostrar la Segunda Cohorte con los filtros actuales.")

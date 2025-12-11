@@ -249,24 +249,20 @@ def apply_gradient_by_row(row):
 
 
 def style_table(df_display):
-    """Inicializa el Styler y aplica todos los formatos, incluyendo el heatmap y los encabezados."""
+    """Inicializa el Styler y aplica todos los formatos, excepto el color del encabezado que se hace con CSS global."""
     
     tasa_cols = df_display.columns[2:].tolist()
     
     styler = df_display.style
     
-    # 🚨 1. ESTILOS PARA LOS ENCABEZADOS (TÍTULOS) - SE UTILIZA CSS INYECTADO GLOBALMENTE
-    # Se añade un estilo base para la tabla, pero la inyección de CSS fuera de esta función 
-    # es la que realmente coloreará los encabezados.
-    
-    # 2. Aplicar el gradiente fila por fila (HEATMAP)
+    # 1. Aplicar el gradiente fila por fila (HEATMAP)
     styler = styler.apply(
         apply_gradient_by_row, 
         axis=1, 
         subset=df_display.columns
     )
 
-    # 3. Aplicar formato de texto y negritas a las celdas de datos
+    # 2. Aplicar formato de texto y negritas a las celdas de datos
     styler = styler.set_properties(
         **{'text-align': 'center'},
         subset=tasa_cols 
@@ -291,15 +287,24 @@ df_master = load_and_transform_data(FILE_PATH)
 st.set_page_config(layout="wide")
 
 # 🚨 SOLUCIÓN PARA EL ENCABEZADO: INYECTAR CSS GLOBALMENTE
-# Usamos el selector CSS para apuntar a los encabezados dentro del contenedor Streamlit Dataframe
+# Este CSS debería anular el estilo nativo de Streamlit para la tabla de datos.
 HEADER_CSS = """
 <style>
-/* El selector más específico para las celdas de encabezado de Pandas/Streamlit */
+/* Selector para el contenedor de la tabla de datos de Streamlit */
+div.stDataFrame {
+    /* Aseguramos que el contenedor tenga el tamaño adecuado */
+    width: 100%;
+}
+/* Selector para los encabezados TH dentro de la tabla */
 .stDataFrame th {
     background-color: #ADD8E6 !important; /* Celeste */
     color: black !important;
-    font-weight: bold !important;
+    font-weight: bold !important; /* Negritas */
     text-align: center !important;
+}
+/* Estilo para las cabeceras fijas */
+.stDataFrame div[data-testid="stDataframeHeaders"] th {
+    background-color: #ADD8E6 !important; /* Aplicar el celeste a las cabeceras fijas */
 }
 </style>
 """
@@ -404,7 +409,8 @@ try:
         df_display.iloc[:, 1] = df_display.iloc[:, 1].apply(format_currency)
         
         
-        # 3. APLICAR ESTILOS CON STYLER (Heatmap y Encabezados)
+        # 3. APLICAR ESTILOS CON STYLER (Heatmap)
+        # NOTA: El estilo de encabezado se aplica globalmente arriba.
         styler = style_table(df_display)
         
         st.subheader("Curva de Mora 30-150 de la Cartera por Antigüedad (Fechas de Reporte)")

@@ -156,11 +156,11 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     # 3. Preparación y cálculo de la Tasa de Mora
     
-    # 🚨 SOLUCIÓN: Garantizar que 'Mes de Apertura' es Datetime antes de hacer slicing.
+    # Asegurar que 'Mes de Apertura' es Datetime
     df_summary['Mes de Apertura'] = pd.to_datetime(df_summary[time_column])
     
-    # Creamos el DataFrame de tasas con las columnas de saldos base (que dejaremos como montos)
-    df_tasas = df_summary[['Mes de Apertura', 'saldo_capital_total', 'saldo_capital_total_30150', 'saldo_capital_total_890']].copy()
+    # 🚨 CAMBIO CLAVE: Excluimos 'saldo_capital_total_30150' y 'saldo_capital_total_890'
+    df_tasas = df_summary[['Mes de Apertura', 'saldo_capital_total']].copy()
     
     # Calcular las tasas C1 a C25
     for mora_col, capital_col in zip(c_cols_mora, c_cols_capital):
@@ -170,12 +170,11 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
             (df_summary[mora_col] / df_summary[capital_col]) * 100,
             0
         )
-        # La nueva columna de tasa se nombra usando el prefijo de mora (ej., saldo_capital_total_c1)
         df_tasas[mora_col] = tasa
         
     # 4. Renombrar columnas para la presentación
-    # El nombre de las columnas de mora ahora pasa a ser el nombre de la Tasa
-    column_names = ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Mora 30-150 (Monto)', 'Mora 08-90 (Monto)']
+    # La lista de nombres ahora tiene 2 columnas menos al inicio
+    column_names = ['Mes de Apertura', 'Saldo Capital Total (Monto)']
     
     # Renombrar columnas de tasas C1 a C25
     for n in range(1, 26):
@@ -208,7 +207,7 @@ if not df_master['Mes_BperturB'].empty:
     # 1. Obtener las fechas únicas
     unique_cohort_dates = df_master['Mes_BperturB'].dropna().unique()
     
-    # 2. Convertir a datetime y ordenar (CORREGIDO)
+    # 2. Convertir a datetime y ordenar 
     sorted_cohort_dates = pd.Series(pd.to_datetime(unique_cohort_dates)).sort_values(ascending=False)
     
     # 3. Seleccionar las últimas 24 (máximo)
@@ -265,7 +264,7 @@ try:
     df_tasas_mora = calculate_saldo_consolidado(df_filtered) 
 
     if not df_tasas_mora.empty:
-        # Formato de la Fecha (La corrección asegura que esto funcione)
+        # Formato de la Fecha 
         df_tasas_mora['Mes de Apertura'] = df_tasas_mora['Mes de Apertura'].dt.strftime('%Y-%m')
 
         # Formato de moneda para los montos y porcentaje para las tasas
@@ -278,14 +277,14 @@ try:
         
         df_display = df_tasas_mora.copy()
         
-        # Aplicar formato: Monto para las primeras 4 columnas (saldos base), Porcentaje para el resto (Tasas C1 a C25)
+        # Aplicar formato: Monto solo a la segunda columna (índice 1: Saldo Capital Total)
+        # 🚨 CAMBIO CLAVE: Solo la columna 1 (índice 1) es monto.
         
-        # Montos (Columnas 1, 2, 3: Saldo Capital Total, Mora 30-150, Mora 08-90)
-        for col in df_display.columns[1:4]:
-            df_display[col] = df_display[col].apply(format_currency)
+        # Montos (Columna 1: Saldo Capital Total (Monto))
+        df_display.iloc[:, 1] = df_display.iloc[:, 1].apply(format_currency)
             
-        # Tasas (Columnas 4 en adelante: Tasa Mora C1 a C25)
-        for col in df_display.columns[4:]:
+        # Tasas (Columnas 2 en adelante: Tasa Mora C1 a C25)
+        for col in df_display.columns[2:]:
             df_display[col] = df_display[col].apply(format_percent)
             
         st.dataframe(df_display, hide_index=True)

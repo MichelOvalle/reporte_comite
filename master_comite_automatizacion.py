@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from dateutil.relativedelta import relativedelta
 import matplotlib as mpl 
+import altair as alt # Importamos Altair para las gráficas
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
 FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_automatizacion.xlsx'
@@ -36,7 +37,6 @@ def load_and_transform_data(file_path):
         df_master['fecha_cierre'] = pd.to_datetime(df_master['fecha_cierre'], errors='coerce')
 
         # W: Mes_BperturB (FIN.MES)
-        # Aseguramos que Mes_BperturB sea el día 1 del mes para una comparación limpia
         df_master['Mes_BperturB'] = df_master['mes_apertura'].dt.normalize().dt.to_period('M').dt.to_timestamp()
         
         df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
@@ -187,7 +187,7 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     return df_tasas
 
 
-# --- FUNCIÓN DE ESTILIZADO DE DATAFRAME (FORMATO CONDICIONAL) ---
+# --- FUNCIONES DE ESTILIZADO Y GRÁFICAS ---
 
 def clean_cell_to_float(val):
     if isinstance(val, str) and val.endswith('%'):
@@ -226,22 +226,16 @@ def apply_gradient_by_row(row):
 
 
 def style_table(df_display):
-    # tasa_cols se definirá después de la eliminación de la columna temporal
-    
     styler = df_display.style
     
-    # 1. Aplicar el gradiente fila por fila (HEATMAP)
-    # Se debe hacer antes del cálculo de PROMEDIO/MAXIMO/MINIMO
     styler = styler.apply(
         apply_gradient_by_row, 
         axis=1, 
         subset=df_display.columns
     )
     
-    # Aseguramos tasa_cols para el styler después de la posible eliminación de columnas
     if len(df_display.columns) > 2:
         tasa_cols = df_display.columns[2:].tolist()
-        # 2. Aplicar formato de texto y negritas a las celdas de datos
         styler = styler.set_properties(
             **{'text-align': 'center'},
             subset=tasa_cols 
@@ -268,6 +262,43 @@ def style_table(df_display):
     styler = styler.apply(highlight_summary_rows, axis=1)
 
     return styler
+
+def create_cohort_chart(df_cohort, cohort_index, mora_type):
+    """
+    Prepara los datos y crea un gráfico de línea Altair para una cohorte específica.
+    df_cohort debe ser el DataFrame con una sola fila correspondiente a la cohorte.
+    """
+    
+    # 1. Preparar DataFrame (Seleccionar solo tasas y pivotar)
+    # Excluir Mes de Apertura y Saldo Capital Total (las dos primeras columnas)
+    df_chart = df_cohort.iloc[0, 2:].reset_index()
+    df_chart.columns = ['Mes de Reporte', 'Tasa (%)']
+    
+    # 2. Calcular la Antigüedad (para el eje X)
+    # La antigüedad es la posición del mes de reporte dentro de las columnas de tasa
+    df_chart['Antigüedad (Meses)'] = range(len(df_chart))
+    
+    # 3. Formatear y Crear Título
+    cohort_date_str = df_cohort.iloc[0]['Mes de Apertura'].strftime('%Y-%m')
+    title_text = f"Curva de Mora {mora_type} | Cohorte de {cohort_date_str}"
+    
+    # 4. Crear Gráfico Altair
+    chart = alt.Chart(df_chart).mark_line(point=True).encode(
+        # Eje X: Antigüedad
+        x=alt.X('Antigüedad (Meses)', 
+                axis=alt.Axis(tickMinStep=1, title='Antigüedad de la Cohorte (Meses)', 
+                              labelOverlap=False)),
+        # Eje Y: Tasa de Mora (Formato de porcentaje)
+        y=alt.Y('Tasa (%)', 
+                axis=alt.Axis(format='.2f', title='Tasa de Mora (%)')),
+        # Tooltip para ver los valores exactos
+        tooltip=['Mes de Reporte', 'Antigüedad (Meses)', alt.Tooltip('Tasa (%)', format='.2f')]
+    ).properties(
+        title=title_text
+    ).interactive()
+    
+    return chart
+
 
 # --- CARGA PRINCIPAL DEL DATAFRAME ---
 df_master = load_and_transform_data(FILE_PATH)
@@ -349,8 +380,6 @@ if df_filtered.empty:
 
 # --- VISUALIZACIÓN PRINCIPAL: TABLA DE TASAS DE MORA (VINTAGE) ---
 
-st.header("1. Vintage Mora 30-150")
-
 try:
     # Calcular la Tabla Consolidada y las Tasas (Incluye 30-150 y 8-90)
     df_tasas_mora_full = calculate_saldo_consolidado(df_filtered) 
@@ -358,6 +387,7 @@ try:
     # ----------------------------------------------------------------------------------
     # --- 1. MOSTRAR VINTAGE MORA 30-150 (Principal) ---
     # ----------------------------------------------------------------------------------
+    st.header("1. Vintage Mora 30-150")
 
     if not df_tasas_mora_full.empty:
         
@@ -382,17 +412,16 @@ try:
             
         df_display_30150 = df_display_raw_30150.copy()
         
-        # 🚨 SOLUCIÓN PARA EL FORMATO DE FECHA (Paso 1)
-        # 3. CREAR COLUMNA TEMPORAL DATETIME PARA LA LÓGICA DE CORTE
+        # CREAR COLUMNA TEMPORAL DATETIME PARA LA LÓGICA DE CORTE
         df_display_30150['Fecha Cohorte DATETIME'] = df_display_30150['Mes de Apertura'].apply(lambda x: x.normalize())
         
-        # 4. FORMATO DE LA COLUMNA DE DISPLAY A STRING (Esto resuelve la visualización)
+        # FORMATO DE LA COLUMNA DE DISPLAY A STRING
         df_display_30150['Mes de Apertura'] = df_display_30150['Mes de Apertura'].dt.strftime('%Y-%m')
         
         tasa_cols_30150 = [col for col in df_display_30150.columns if col not in ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Fecha Cohorte DATETIME']]
 
         for index, row in df_display_30150.iterrows():
-            cohort_date = row['Fecha Cohorte DATETIME'] # Usamos la columna temporal DATETIME para la comparación
+            cohort_date = row['Fecha Cohorte DATETIME']
             
             for col in tasa_cols_30150:
                 col_date_str = col.split(' ')[0] 
@@ -402,17 +431,12 @@ try:
                 except:
                     continue
 
-                # LÓGICA DE CORTE: Si la fecha de reporte es estrictamente menor a la de cohorte, es vacío.
                 if col_date < cohort_date: 
                     df_display_30150.loc[index, col] = '' 
                 else:
                     df_display_30150.loc[index, col] = format_percent(row[col])
 
         df_display_30150.iloc[:, 1] = df_display_30150.iloc[:, 1].apply(format_currency)
-
-        # 🚨 SOLUCIÓN PARA EL FORMATO DE FECHA (Paso 2)
-        # 5. ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
-        df_display_30150.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
 
         # --- CÁLCULO DE RESUMEN 30-150 ---
         
@@ -427,7 +451,6 @@ try:
         max_row.iloc[1] = format_currency(saldo_col_raw.max())
         min_row.iloc[1] = format_currency(saldo_col_raw.min())
         
-        # El índice de las tasas ahora es correcto después de la eliminación de la columna
         for i, col in enumerate(df_display_30150.columns[2:]):
             rate_values = rate_cols_raw.iloc[:, i]
             avg_row.iloc[i + 2] = format_percent(rate_values.mean())
@@ -442,9 +465,13 @@ try:
         df_display_30150.loc['MÍNIMO'] = min_row
         df_display_30150.loc['PROMEDIO'] = avg_row
         
+        # ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
+        df_display_30150.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
+        
         # APLICAR ESTILOS
         styler_30150 = style_table(df_display_30150)
         st.dataframe(styler_30150, hide_index=True)
+        
         
         # ----------------------------------------------------------------------------------
         # --- 2. MOSTRAR NUEVA TABLA VINTAGE MORA 8-90 ---
@@ -467,18 +494,17 @@ try:
 
         df_display_890 = df_display_raw_890.copy()
         
-        # 🚨 SOLUCIÓN PARA EL FORMATO DE FECHA (Paso 1)
-        # 3. CREAR COLUMNA TEMPORAL DATETIME PARA LA LÓGICA DE CORTE
+        # CREAR COLUMNA TEMPORAL DATETIME PARA LA LÓGICA DE CORTE
         df_display_890['Fecha Cohorte DATETIME'] = df_display_890['Mes de Apertura'].apply(lambda x: x.normalize())
         
-        # 4. FORMATO DE LA COLUMNA DE DISPLAY A STRING (Esto resuelve la visualización)
+        # FORMATO DE LA COLUMNA DE DISPLAY A STRING
         df_display_890['Mes de Apertura'] = df_display_890['Mes de Apertura'].dt.strftime('%Y-%m')
         
         tasa_cols_890 = [col for col in df_display_890.columns if col not in ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Fecha Cohorte DATETIME']]
 
 
         for index, row in df_display_890.iterrows():
-            cohort_date = row['Fecha Cohorte DATETIME'] # Usamos la columna temporal DATETIME para la comparación
+            cohort_date = row['Fecha Cohorte DATETIME']
             
             for col in tasa_cols_890:
                 col_date_str = col.split(' ')[0] 
@@ -488,17 +514,12 @@ try:
                 except:
                     continue
 
-                # LÓGICA DE CORTE: Si la fecha de reporte es estrictamente menor a la de cohorte, es vacío.
                 if col_date < cohort_date: 
                     df_display_890.loc[index, col] = '' 
                 else:
                     df_display_890.loc[index, col] = format_percent(row[col])
 
         df_display_890.iloc[:, 1] = df_display_890.iloc[:, 1].apply(format_currency)
-
-        # 🚨 SOLUCIÓN PARA EL FORMATO DE FECHA (Paso 2)
-        # 5. ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
-        df_display_890.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
         
         # --- CÁLCULO DE RESUMEN 8-90 ---
         
@@ -527,13 +548,39 @@ try:
         df_display_890.loc['MÍNIMO'] = min_row
         df_display_890.loc['PROMEDIO'] = avg_row
         
+        # ELIMINAR LA COLUMNA TEMPORAL DATETIME ANTES DE MOSTRAR
+        df_display_890.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
+        
         # APLICAR ESTILOS
         styler_890 = style_table(df_display_890)
         st.dataframe(styler_890, hide_index=True)
 
 
+        # ----------------------------------------------------------------------------------
+        # --- 3. GRÁFICAS DE COMPORTAMIENTO DE COHORTE ---
+        # ----------------------------------------------------------------------------------
+        st.header("3. Gráficas de Comportamiento Individual")
+        
+        # --- GRÁFICA 1: SEGUNDA COHORTE (Mora 30-150) ---
+        if len(df_display_raw_30150) > 1:
+            # La tabla ya está ordenada (ASCENDENTE), por lo que la segunda cohorte es el índice [1]
+            df_cohort_30150 = df_display_raw_30150.iloc[[1]].copy()
+            chart_30150 = create_cohort_chart(df_cohort_30150, 1, '30-150')
+            st.altair_chart(chart_30150, use_container_width=True)
+        else:
+            st.warning("No hay suficientes cohortes (necesarias 2) para mostrar la gráfica de la Segunda Cohorte (Mora 30-150).")
+            
+        # --- GRÁFICA 2: PRIMERA COHORTE (Mora 8-90) ---
+        if len(df_display_raw_890) > 0:
+            # La tabla ya está ordenada (ASCENDENTE), por lo que la primera cohorte es el índice [0]
+            df_cohort_890 = df_display_raw_890.iloc[[0]].copy()
+            chart_890 = create_cohort_chart(df_cohort_890, 0, '8-90')
+            st.altair_chart(chart_890, use_container_width=True)
+        else:
+            st.warning("No hay suficientes cohortes para mostrar la gráfica de la Primera Cohorte (Mora 8-90).")
+
     else:
         st.warning("No hay datos que cumplan con los criterios de filtro para generar la tabla.")
 
 except Exception as e:
-    st.error(f"Error al generar la tabla de Tasas de Mora: {e}")
+    st.error(f"Error al generar la tabla de Tasas de Mora o las gráficas: {e}")

@@ -4,7 +4,6 @@ import numpy as np
 from dateutil.relativedelta import relativedelta
 import matplotlib as mpl 
 import altair as alt 
-# Importamos Scikit-learn para el pronóstico simple
 from sklearn.linear_model import LinearRegression 
 
 # --- CONFIGURACIÓN DE RUTAS Y DATOS ---
@@ -17,7 +16,6 @@ SHEET_EJERCICIO = 'ejercicio'
 def load_and_transform_data(file_path):
     """Carga los datos y aplica las transformaciones necesarias, incluyendo la nueva columna 'nombre_sucursal'."""
     try:
-        # Nota: pd.read_excel cargará automáticamente la columna W ('nombre_sucursal')
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
         
         buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
@@ -40,7 +38,6 @@ def load_and_transform_data(file_path):
         df_master['fecha_cierre'] = pd.to_datetime(df_master['fecha_cierre'], errors='coerce')
 
         # W: Mes_BperturB (FIN.MES)
-        # Aseguramos que Mes_BperturB sea el día 1 del mes para una comparación limpia
         df_master['Mes_BperturB'] = df_master['mes_apertura'].dt.normalize().dt.to_period('M').dt.to_timestamp()
         
         df_master['Mora_30-150'] = np.where(df_master['bucket'].isin(buckets_mora_30_150), 'Sí', 'No')
@@ -140,7 +137,6 @@ def load_and_transform_data(file_path):
 
 
 # --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE (¡CALCULA LA TASA DE MORA!) ---
-# Se mantiene esta función original, que calcula tasas a nivel consolidado después de los filtros.
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     df_filtered = df.dropna(subset=[time_column]).copy()
@@ -198,25 +194,114 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     return df_tasas
 
 
-# --- FUNCIÓN DE CÁLCULO ESPECÍFICO PARA C2 POR SUCURSAL ---
+# --- FUNCIÓN DE ESTILIZADO DE DATAFRAME (FORMATO CONDICIONAL) ---
+
+def clean_cell_to_float(val):
+    # Función de limpieza para que el estilizado lea el valor numérico
+    if isinstance(val, str) and val.endswith('%'):
+        try:
+            return float(val.replace('%', '').replace(',', ''))
+        except ValueError:
+            return np.nan 
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return np.nan 
+
+def apply_gradient_by_row(row):
+    # Solo aplicamos el gradiente a las columnas de tasas (de la 3 en adelante)
+    numeric_rates = row.iloc[3:].apply(clean_cell_to_float).dropna()
+    styles = [''] * len(row)
+    if len(numeric_rates) < 2:
+        return styles
+
+    # Se mantiene la lógica del gradiente
+    cmap = mpl.cm.get_cmap('RdYlGn_r')
+    v_min = numeric_rates.min()
+    v_max = numeric_rates.max()
+    
+    if v_min == v_max:
+        color_rgb = cmap(0.5)
+        neutral_style = f'background-color: rgba({int(color_rgb[0]*255)}, {int(color_rgb[1]*255)}, {int(color_rgb[2]*255)}, 0.5); text-align: center;'
+        for col_name in numeric_rates.index:
+            col_loc = row.index.get_loc(col_name)
+            styles[col_loc] = neutral_style
+        return styles
+
+    norm = mpl.colors.Normalize(v_min, v_max)
+    
+    for col_index, val in numeric_rates.items():
+        rgba = cmap(norm(val))
+        style_color = f'background-color: rgba({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)}, 1.0); text-align: center;'
+        col_loc = row.index.get_loc(col_index)
+        styles[col_loc] = style_color
+    return styles
+
+
+def style_table(df_display, df_raw_rates):
+    """Aplica estilos, incluyendo el gradiente de heatmap, a la tabla de visualización."""
+    
+    styler = df_display.style
+    
+    # 1. Aplicar el gradiente (usando el DataFrame de tasas *sin* formatear)
+    # Clonamos df_raw_rates y le añadimos las columnas no-tasa para que tenga la misma estructura
+    df_temp_for_gradient = df_raw_rates.iloc[:, 3:].copy() # Solo tasas
+
+    # Usamos df_temp_for_gradient para aplicar el gradiente fila por fila
+    styler = styler.apply(
+        apply_gradient_by_row, 
+        axis=1, 
+        # Aplicar solo a las columnas de tasas (las primeras 3 columnas son Mes, Saldo, Ops)
+        subset=df_display.columns[3:]
+    )
+    
+    # 2. Aplicar formato de texto y negritas
+    if len(df_display.columns) > 3:
+        tasa_cols = df_display.columns[3:].tolist()
+        styler = styler.set_properties(
+            **{'text-align': 'center'},
+            subset=tasa_cols 
+        )
+        
+    styler = styler.set_properties(
+        **{'font-weight': 'bold', 'text-align': 'left'},
+        subset=[df_display.columns[0]] 
+    ).set_properties(
+        **{'font-weight': 'bold', 'text-align': 'right'},
+        subset=[df_display.columns[1], df_display.columns[2]] 
+    )
+    
+    # Lógica para resaltar filas de resumen (MÁXIMO, MÍNIMO, PROMEDIO)
+    def highlight_summary_rows(row):
+        is_avg = (row.name == 'PROMEDIO')
+        is_max = (row.name == 'MÁXIMO')
+        is_min = (row.name == 'MÍNIMO')
+        
+        if is_avg or is_max or is_min:
+            color = '#F0F0F0' if is_max or is_min else '#E6F3FF'
+            return [f'font-weight: bold; background-color: {color};'] * len(row) 
+        return [''] * len(row)
+
+    styler = styler.apply(highlight_summary_rows, axis=1)
+
+    return styler
+
+
+# --- FUNCIÓN DE CÁLCULO ESPECÍFICO PARA C2 POR SUCURSAL (Mantenida) ---
 def calculate_sucursal_c2_mora(df, uen_name):
     """Calcula la mora C2 para la UEN y consolida por sucursal."""
     
-    # 1. Filtrar por UEN (ya está prefiltrado, pero lo aseguramos)
     df_uen = df[df['uen'] == uen_name].copy()
     
     if df_uen.empty:
         return pd.DataFrame()
 
-    # 2. Agrupar por sucursal
-    # Usamos c2 para el cálculo: capital_c2 y saldo_capital_total_30150_c2
     df_summary = df_uen.groupby('nombre_sucursal').agg(
         Capital_C2=('capital_c2', 'sum'),
         Mora_30150_C2=('saldo_capital_total_c2', 'sum'),
         Operaciones=('operaciones', 'sum')
     ).reset_index()
 
-    # 3. Calcular la Tasa de Mora C2
     df_summary['% Mora C2'] = np.where(
         df_summary['Capital_C2'] != 0,
         (df_summary['Mora_30150_C2'] / df_summary['Capital_C2']) * 100,
@@ -225,39 +310,32 @@ def calculate_sucursal_c2_mora(df, uen_name):
     
     df_summary.rename(columns={'nombre_sucursal': 'Sucursal'}, inplace=True)
     
-    # Filtrar sucursales donde el volumen (Capital C2) es cero, ya que no son relevantes para el análisis de mora
     df_summary = df_summary[df_summary['Capital_C2'] > 0].sort_values('% Mora C2', ascending=False)
     
     return df_summary[['Sucursal', '% Mora C2', 'Capital_C2', 'Operaciones']]
 
-# --- FUNCIÓN PARA PRONÓSTICO SIMPLE (Regresión Lineal) ---
+# --- FUNCIÓN PARA PRONÓSTICO SIMPLE (Regresión Lineal) (Mantenida) ---
 def simple_c2_forecast(df):
     """Realiza un pronóstico simple de regresión lineal para la próxima tasa C2."""
     
-    # Usamos la Tasa C2 (índice 4 en el raw data)
     target_column_index = 4
     
     if len(df.columns) <= target_column_index:
         return np.nan
         
-    # Obtener las tasas C2 y las fechas
     df_forecast = df.iloc[:, [0, target_column_index]].copy()
     df_forecast.columns = ['Mes de Apertura', 'Tasa_C2']
     
-    # Filtro: Solo necesitamos cohortes históricas con datos.
     df_forecast = df_forecast.dropna(subset=['Tasa_C2'])
     
     if len(df_forecast) < 2:
         return np.nan
         
-    # Usar un índice numérico como variable X (el tiempo)
     df_forecast['X_Time'] = np.arange(len(df_forecast))
     
-    # Último punto es el que queremos predecir
     X = df_forecast['X_Time'].values[:-1].reshape(-1, 1)
     Y = df_forecast['Tasa_C2'].values[:-1]
     
-    # Nuevo punto de tiempo para la predicción
     next_time_point = len(df_forecast) 
     
     model = LinearRegression()
@@ -265,16 +343,8 @@ def simple_c2_forecast(df):
     
     forecast_value = model.predict([[next_time_point]])
     
-    # Retornar el valor pronosticado, limitado a 0 si es negativo
     return max(0, forecast_value[0])
 
-
-# --- FUNCIÓN DE ESTILIZADO (Mantenida) ---
-def style_table(df_display):
-    # ... (Mantenida la función de estilizado para tab1 y tab2)
-    styler = df_display.style
-    # ... (Se omite el código extenso para ahorrar espacio)
-    return styler
 
 # --- CARGA PRINCIPAL DEL DATAFRAME ---
 df_master = load_and_transform_data(FILE_PATH)
@@ -284,7 +354,6 @@ df_master = load_and_transform_data(FILE_PATH)
 
 st.set_page_config(layout="wide")
 
-# 🚨 SOLUCIÓN PARA EL ENCABEZADO: INYECTAR CSS GLOBALMENTE
 HEADER_CSS = """
 <style>
 div.stDataFrame {
@@ -312,7 +381,6 @@ if df_master.empty:
 # --- CREACIÓN DE PESTAÑAS (TABS) ---
 tab1, tab2, tab3 = st.tabs(["Análisis Vintage", "Gráficas Clave y Detalle", "Análisis por Sucursal"])
 
-# Inicializamos variables para almacenar los DataFrames filtrados que se usarán en tab2 y tab3
 df_display_raw_30150 = pd.DataFrame()
 df_filtered = pd.DataFrame()
 df_filtered_master = pd.DataFrame()
@@ -322,12 +390,10 @@ selected_uens = []
 with tab1:
     # --- CONTENIDO DE LA PESTAÑA 1: ANÁLISIS VINTAGE ---
     
-    # --- 🛑 FILTRO PARA VISUALIZACIÓN: ÚLTIMAS 24 COHORTES DE APERTURA ---
     if not df_master['Mes_BperturB'].empty:
         unique_cohort_dates = df_master['Mes_BperturB'].dropna().unique()
         sorted_cohort_dates = pd.Series(pd.to_datetime(unique_cohort_dates)).sort_values(ascending=False)
         last_24_cohorts = sorted_cohort_dates.iloc[:24]
-        # Usamos df_filtered_master para el filtrado de 24 cohortes
         df_filtered_master = df_master[df_master['Mes_BperturB'].isin(last_24_cohorts)].copy()
         
         if not last_24_cohorts.empty:
@@ -360,7 +426,6 @@ with tab1:
         st.warning("Por favor, selecciona al menos una opción en todos los filtros del panel lateral.")
         st.stop()
 
-    # Aplicar filtros al DataFrame maestro. ESTA VARIABLE df_filtered se usará en tab2 y tab3
     df_filtered = df_filtered_master[
         (df_filtered_master['uen'].isin(selected_uens)) &
         (df_filtered_master['PR_Origen_Limpio'].isin(selected_origen)) &
@@ -376,7 +441,6 @@ with tab1:
     st.header("1. Vintage Mora 30-150")
 
     try:
-        # Calcular la Tabla Consolidada y las Tasas (Incluye 30-150 y 8-90)
         df_tasas_mora_full = calculate_saldo_consolidado(df_filtered) 
         
         if not df_tasas_mora_full.empty:
@@ -385,14 +449,16 @@ with tab1:
             cols_30150 = ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Total Operaciones'] + [
                 col for col in df_tasas_mora_full.columns if '(30-150)' in col
             ]
-            df_display_raw_30150 = df_tasas_mora_full[cols_30150].copy() # <--- GUARDAMOS LA COPIA BRUTA AQUÍ
+            df_display_raw_30150 = df_tasas_mora_full[cols_30150].copy() 
             
             # 2. RENOMBRAR COLUMNAS DE REPORTE: Eliminar el sufijo (30-150)
             rename_map_30150 = {col: col.replace(' (30-150)', '') 
                                 for col in df_display_raw_30150.columns if '(30-150)' in col}
             df_display_raw_30150.rename(columns=rename_map_30150, inplace=True)
             
-            # --- LÓGICA DE VISUALIZACIÓN COMPARTIDA ---
+            
+            # --- LÓGICA DE VISUALIZACIÓN Y FORMATO ---
+            
             def format_currency(val): return f'{val:,.0f}'
             def format_percent(val): return f'{val:,.2f}%'
             def format_int(val): return f'{val:,.0f}'
@@ -403,16 +469,22 @@ with tab1:
             
             tasa_cols_30150 = [col for col in df_display_30150.columns if col not in ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Total Operaciones', 'Fecha Cohorte DATETIME']]
 
+            # Copia del RAW data para el cálculo de resumen (antes de introducir strings o NaN/cero)
+            rate_cols_raw_values = df_display_raw_30150.iloc[:, 3:].copy()
+            rate_cols_raw_values.columns = tasa_cols_30150
+            
+            # Aplicar el corte del triángulo y formateo a STRING
             for index, row in df_display_30150.iterrows():
                 cohort_date = row['Fecha Cohorte DATETIME'] 
+                
                 for col in tasa_cols_30150:
                     col_date_str = col.split(' ')[0] 
-                    try:
-                        col_date = pd.to_datetime(col_date_str + '-01')
+                    try: col_date = pd.to_datetime(col_date_str + '-01')
                     except: continue
 
                     if col_date < cohort_date: 
-                        df_display_30150.loc[index, col] = '' 
+                        df_display_30150.loc[index, col] = '' # Celdas fuera del triángulo se dejan vacías
+                        rate_cols_raw_values.loc[index, col] = np.nan # Usamos NaN para el cálculo del MÍNIMO/PROMEDIO
                     else:
                         df_display_30150.loc[index, col] = format_percent(row[col])
 
@@ -421,15 +493,16 @@ with tab1:
 
             df_display_30150.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
 
-            # --- CÁLCULO DE RESUMEN 30-150 ---
+            # --- CÁLCULO DE RESUMEN CORREGIDO ---
+            
             saldo_col_raw = df_display_raw_30150['Saldo Capital Total (Monto)']
             ops_col_raw = df_display_raw_30150['Total Operaciones'] 
-            rate_cols_raw = df_display_raw_30150.iloc[:, 3:]
             
             avg_row = pd.Series(index=df_display_30150.columns)
             max_row = pd.Series(index=df_display_30150.columns)
             min_row = pd.Series(index=df_display_30150.columns)
             
+            # Capital y Ops
             avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
             avg_row.iloc[2] = format_int(ops_col_raw.mean()) 
             max_row.iloc[1] = format_currency(saldo_col_raw.max())
@@ -437,11 +510,17 @@ with tab1:
             min_row.iloc[1] = format_currency(saldo_col_raw.min())
             min_row.iloc[2] = format_int(ops_col_raw.min())
             
-            for i, col_name in enumerate(rate_cols_raw.columns):
-                rate_values = rate_cols_raw.iloc[:, i]
-                avg_row.iloc[i + 3] = format_percent(rate_values.mean())
-                max_row.iloc[i + 3] = format_percent(rate_values.max())
-                min_row.iloc[i + 3] = format_percent(rate_values.min())
+            # Tasas (Usando rate_cols_raw_values con NaN para ignorar celdas vacías)
+            for i, col_name in enumerate(tasa_cols_30150):
+                rate_values = rate_cols_raw_values.iloc[:, i].dropna()
+                
+                avg_row.iloc[i + 3] = format_percent(rate_values.mean()) if not rate_values.empty else 'N/A'
+                max_row.iloc[i + 3] = format_percent(rate_values.max()) if not rate_values.empty else 'N/A'
+                
+                # CORRECCIÓN CLAVE: El mínimo debe ser > 0 para evitar el 0.00% de celdas no-maduras
+                # Solo tomamos el mínimo si existen valores > 0
+                valid_min = rate_values[rate_values > 0].min()
+                min_row.iloc[i + 3] = format_percent(valid_min) if pd.notna(valid_min) else '0.00%'
             
             avg_row.iloc[0] = 'PROMEDIO'
             max_row.iloc[0] = 'MÁXIMO'
@@ -451,7 +530,8 @@ with tab1:
             df_display_30150.loc['MÍNIMO'] = min_row
             df_display_30150.loc['PROMEDIO'] = avg_row
             
-            styler_30150 = style_table(df_display_30150)
+            # Aplicar estilizado usando la tabla RAW para el gradiente
+            styler_30150 = style_table(df_display_30150, df_display_raw_30150)
             st.dataframe(styler_30150, hide_index=True)
             
             
@@ -473,16 +553,20 @@ with tab1:
             
             tasa_cols_890 = [col for col in df_display_890.columns if col not in ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Total Operaciones', 'Fecha Cohorte DATETIME']]
 
+            rate_cols_raw_values_890 = df_display_raw_890.iloc[:, 3:].copy()
+            rate_cols_raw_values_890.columns = tasa_cols_890
+
+            # Aplicar el corte del triángulo y formateo a STRING
             for index, row in df_display_890.iterrows():
                 cohort_date = row['Fecha Cohorte DATETIME'] 
                 for col in tasa_cols_890:
                     col_date_str = col.split(' ')[0] 
-                    try:
-                        col_date = pd.to_datetime(col_date_str + '-01')
+                    try: col_date = pd.to_datetime(col_date_str + '-01')
                     except: continue
 
                     if col_date < cohort_date: 
                         df_display_890.loc[index, col] = '' 
+                        rate_cols_raw_values_890.loc[index, col] = np.nan
                     else:
                         df_display_890.loc[index, col] = format_percent(row[col])
 
@@ -491,15 +575,15 @@ with tab1:
 
             df_display_890.drop(columns=['Fecha Cohorte DATETIME'], inplace=True)
             
-            # --- CÁLCULO DE RESUMEN 8-90 ---
+            # --- CÁLCULO DE RESUMEN 8-90 CORREGIDO ---
             saldo_col_raw = df_display_raw_890['Saldo Capital Total (Monto)']
             ops_col_raw = df_display_raw_890['Total Operaciones']
-            rate_cols_raw_890 = df_display_raw_890.iloc[:, 3:]
             
             avg_row = pd.Series(index=df_display_890.columns)
             max_row = pd.Series(index=df_display_890.columns)
             min_row = pd.Series(index=df_display_890.columns)
             
+            # Capital y Ops
             avg_row.iloc[1] = format_currency(saldo_col_raw.mean())
             avg_row.iloc[2] = format_int(ops_col_raw.mean()) 
             max_row.iloc[1] = format_currency(saldo_col_raw.max())
@@ -507,12 +591,17 @@ with tab1:
             min_row.iloc[1] = format_currency(saldo_col_raw.min())
             min_row.iloc[2] = format_int(ops_col_raw.min())
             
-            for i, col_name in enumerate(rate_cols_raw_890.columns):
-                rate_values = rate_cols_raw_890.iloc[:, i]
-                avg_row.iloc[i + 3] = format_percent(rate_values.mean())
-                max_row.iloc[i + 3] = format_percent(rate_values.max())
-                min_row.iloc[i + 3] = format_percent(rate_values.min())
-            
+            # Tasas
+            for i, col_name in enumerate(tasa_cols_890):
+                rate_values = rate_cols_raw_values_890.iloc[:, i].dropna()
+                
+                avg_row.iloc[i + 3] = format_percent(rate_values.mean()) if not rate_values.empty else 'N/A'
+                max_row.iloc[i + 3] = format_percent(rate_values.max()) if not rate_values.empty else 'N/A'
+                
+                # CORRECCIÓN CLAVE: MÍNIMO > 0
+                valid_min = rate_values[rate_values > 0].min()
+                min_row.iloc[i + 3] = format_percent(valid_min) if pd.notna(valid_min) else '0.00%'
+
             avg_row.iloc[0] = 'PROMEDIO'
             max_row.iloc[0] = 'MÁXIMO'
             min_row.iloc[0] = 'MÍNIMO'
@@ -521,7 +610,7 @@ with tab1:
             df_display_890.loc['MÍNIMO'] = min_row
             df_display_890.loc['PROMEDIO'] = avg_row
             
-            styler_890 = style_table(df_display_890)
+            styler_890 = style_table(df_display_890, df_display_raw_890)
             st.dataframe(styler_890, hide_index=True)
 
         else:
@@ -533,7 +622,6 @@ with tab1:
         
 with tab2:
     # --- CONTENIDO DE LA PESTAÑA 2: GRÁFICAS CLAVE Y DETALLE ---
-    # ... (Se mantiene el código de las tres gráficas)
     
     st.header("📈 Gráficas Clave del Análisis Vintage")
 
@@ -661,9 +749,12 @@ with tab3:
     # Definir las UENs a analizar
     uen_pr = 'PR'
     uen_solidar = 'Solidar'
-
+    
+    # 1. Título y Filtro de UENs
+    st.markdown("## 1. Top Sucursales por Riesgo (Mora C2)")
+    
     # --- Cálculos y Presentación para UEN PR ---
-    st.subheader(f"1. Rendimiento de Sucursales para UEN: {uen_pr}")
+    st.subheader(f"1.1. UEN: {uen_pr}")
     
     df_pr = calculate_sucursal_c2_mora(df_filtered, uen_pr)
     
@@ -673,12 +764,12 @@ with tab3:
         df_pr_consolidado = calculate_saldo_consolidado(df_filtered[df_filtered['uen'] == uen_pr])
         forecast_pr = simple_c2_forecast(df_pr_consolidado)
         
-        col1, col2 = st.columns(2)
+        col1, col2, col_forecast = st.columns(3)
         
         # Máximo
         max_pr = df_pr.iloc[0]
         col1.metric(
-            label=f"Mayor % Mora C2 (Sucursal)", 
+            label=f"Mayor % Mora C2", 
             value=f"{max_pr['% Mora C2']:,.2f}%", 
             help=f"Sucursal: {max_pr['Sucursal']}. Capital C2: ${max_pr['Capital_C2']:,.0f}"
         )
@@ -686,15 +777,18 @@ with tab3:
         # Mínimo
         min_pr = df_pr.iloc[-1]
         col2.metric(
-            label=f"Menor % Mora C2 (Sucursal)", 
+            label=f"Menor % Mora C2", 
             value=f"{min_pr['% Mora C2']:,.2f}%",
             help=f"Sucursal: {min_pr['Sucursal']}. Capital C2: ${min_pr['Capital_C2']:,.0f}"
         )
         
         # Pronóstico
-        st.markdown(f"**Pronóstico de la Tasa de Mora C2 para la próxima cohorte (UEN {uen_pr}):** `{forecast_pr:,.2f}%`")
+        col_forecast.metric(
+            label=f"Pronóstico C2 Próx. Cohorte",
+            value=f"{forecast_pr:,.2f}%" if pd.notna(forecast_pr) else "N/A"
+        )
         
-        st.markdown(f"### Top 10 Sucursales con Mayor Mora C2 ({uen_pr})")
+        st.markdown(f"**Top 10 Sucursales con Mayor Mora C2**")
         df_top10_pr = df_pr.head(10).copy()
         
         # Formateo de tabla para mostrar
@@ -712,7 +806,7 @@ with tab3:
 
 
     # --- Cálculos y Presentación para UEN Solidar ---
-    st.subheader(f"2. Rendimiento de Sucursales para UEN: {uen_solidar}")
+    st.subheader(f"1.2. UEN: {uen_solidar}")
     
     df_solidar = calculate_sucursal_c2_mora(df_filtered, uen_solidar)
     
@@ -722,12 +816,12 @@ with tab3:
         df_solidar_consolidado = calculate_saldo_consolidado(df_filtered[df_filtered['uen'] == uen_solidar])
         forecast_solidar = simple_c2_forecast(df_solidar_consolidado)
 
-        col3, col4 = st.columns(2)
+        col3, col4, col_forecast_solidar = st.columns(3)
         
         # Máximo
         max_solidar = df_solidar.iloc[0]
         col3.metric(
-            label=f"Mayor % Mora C2 (Sucursal)", 
+            label=f"Mayor % Mora C2", 
             value=f"{max_solidar['% Mora C2']:,.2f}%", 
             help=f"Sucursal: {max_solidar['Sucursal']}. Capital C2: ${max_solidar['Capital_C2']:,.0f}"
         )
@@ -735,16 +829,19 @@ with tab3:
         # Mínimo
         min_solidar = df_solidar.iloc[-1]
         col4.metric(
-            label=f"Menor % Mora C2 (Sucursal)", 
+            label=f"Menor % Mora C2", 
             value=f"{min_solidar['% Mora C2']:,.2f}%",
             help=f"Sucursal: {min_solidar['Sucursal']}. Capital C2: ${min_solidar['Capital_C2']:,.0f}"
         )
 
         # Pronóstico
-        st.markdown(f"**Pronóstico de la Tasa de Mora C2 para la próxima cohorte (UEN {uen_solidar}):** `{forecast_solidar:,.2f}%`")
+        col_forecast_solidar.metric(
+            label=f"Pronóstico C2 Próx. Cohorte",
+            value=f"{forecast_solidar:,.2f}%" if pd.notna(forecast_solidar) else "N/A"
+        )
 
 
-        st.markdown(f"### Top 10 Sucursales con Mayor Mora C2 ({uen_solidar})")
+        st.markdown(f"**Top 10 Sucursales con Mayor Mora C2**")
         df_top10_solidar = df_solidar.head(10).copy()
         
         # Formateo de tabla para mostrar

@@ -11,7 +11,7 @@ FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_auto
 SHEET_MASTER = 'master_comite_automatizacion'
 SHEET_EJERCICIO = 'ejercicio'
 
-# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (AÑADIDA LIMPIEZA) ---
+# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (AÑADIDA LIMPIZA) ---
 @st.cache_data
 def load_and_transform_data(file_path):
     """Carga los datos y aplica las transformaciones necesarias, incluyendo la nueva columna 'nombre_sucursal'."""
@@ -68,7 +68,6 @@ def load_and_transform_data(file_path):
             df_master['saldo_capital_total'],
             0
         )
-        # Este es el saldo clave para SOLIDAR
         df_master['saldo_capital_total_890'] = np.where(
             df_master['Mora_08-90'] == 'Sí',
             df_master['saldo_capital_total'],
@@ -141,7 +140,6 @@ def load_and_transform_data(file_path):
 
 
 # --- FUNCIÓN DE CÁLCULO DE SALDO CONSOLIDADO POR COHORTE ---
-# Mantenida sin cambios
 def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     
     df_filtered = df.dropna(subset=[time_column]).copy()
@@ -198,6 +196,87 @@ def calculate_saldo_consolidado(df, time_column='Mes_BperturB'):
     return df_tasas
 
 
+# --- FUNCIONES DE ESTILIZADO Y CÁLCULO DE RESUMEN (Mantenidas) ---
+
+def clean_cell_to_float(val):
+    if isinstance(val, str) and val.endswith('%'):
+        try:
+            return float(val.replace('%', '').replace(',', ''))
+        except ValueError:
+            return np.nan 
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return np.nan 
+
+def apply_gradient_by_row(row):
+    numeric_rates = row.iloc[3:].apply(clean_cell_to_float).dropna()
+    styles = [''] * len(row)
+    if len(numeric_rates) < 2:
+        return styles
+
+    cmap = mpl.cm.get_cmap('RdYlGn_r')
+    v_min = numeric_rates.min()
+    v_max = numeric_rates.max()
+    
+    if v_min == v_max:
+        color_rgb = cmap(0.5)
+        neutral_style = f'background-color: rgba({int(color_rgb[0]*255)}, {int(color_rgb[1]*255)}, {int(color_rgb[2]*255)}, 0.5); text-align: center;'
+        for col_name in numeric_rates.index:
+            col_loc = row.index.get_loc(col_name)
+            styles[col_loc] = neutral_style
+        return styles
+
+    norm = mpl.colors.Normalize(v_min, v_max)
+    
+    for col_index, val in numeric_rates.items():
+        rgba = cmap(norm(val))
+        style_color = f'background-color: rgba({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)}, 1.0); text-align: center;'
+        col_loc = row.index.get_loc(col_index)
+        styles[col_loc] = style_color
+    return styles
+
+
+def style_table(df_display, df_raw_rates):
+    
+    styler = df_display.style
+    
+    styler = styler.apply(
+        apply_gradient_by_row, 
+        axis=1, 
+        subset=df_display.columns[3:]
+    )
+    
+    if len(df_display.columns) > 3:
+        tasa_cols = df_display.columns[3:].tolist()
+        styler = styler.set_properties(
+            **{'text-align': 'center'},
+            subset=tasa_cols 
+        )
+        
+    styler = styler.set_properties(
+        **{'font-weight': 'bold', 'text-align': 'left'},
+        subset=[df_display.columns[0]] 
+    ).set_properties(
+        **{'font-weight': 'bold', 'text-align': 'right'},
+        subset=[df_display.columns[1], df_display.columns[2]] 
+    )
+    
+    def highlight_summary_rows(row):
+        is_avg = (row.name == 'PROMEDIO')
+        is_max = (row.name == 'MÁXIMO')
+        is_min = (row.name == 'MÍNIMO')
+        
+        if is_avg or is_max or is_min:
+            color = '#F0F0F0' if is_max or is_min else '#E6F3FF'
+            return [f'font-weight: bold; background-color: {color};'] * len(row) 
+        return [''] * len(row)
+
+    styler = styler.apply(highlight_summary_rows, axis=1)
+
+    return styler
+
+
 # --- FUNCIÓN DE CÁLCULO ESPECÍFICO C2 POR SUCURSAL (Mora 30-150, utilizada para PR) ---
 def calculate_sucursal_c2_mora(df, uen_name):
     """Calcula la mora C2 (30-150) para la UEN y consolida por sucursal."""
@@ -225,7 +304,7 @@ def calculate_sucursal_c2_mora(df, uen_name):
     
     return df_summary[['Sucursal', '% Mora C2', 'Capital_C2', 'Operaciones']]
 
-# --- NUEVA FUNCIÓN DE CÁLCULO C2 POR SUCURSAL (Mora 8-90, utilizada para SOLIDAR) ---
+# --- FUNCIÓN DE CÁLCULO C2 POR SUCURSAL (Mora 8-90, utilizada para SOLIDAR) ---
 def calculate_sucursal_c2_mora_890(df, uen_name):
     """Calcula la mora C2 (8-90) para la UEN y consolida por sucursal."""
     
@@ -250,20 +329,48 @@ def calculate_sucursal_c2_mora_890(df, uen_name):
     
     df_summary = df_summary[df_summary['Capital_C2'] > 0].sort_values('% Mora C2', ascending=False)
     
-    # Se agrega una columna indicando la métrica
     df_summary['Métrica'] = 'Mora 8-90 C2'
     
     return df_summary[['Sucursal', '% Mora C2', 'Capital_C2', 'Operaciones', 'Métrica']]
 
 
-# --- FUNCIÓN PARA PRONÓSTICO SIMPLE (Regresión Lineal) ---
-# Se necesita una función de pronóstico que use la métrica correcta (8-90)
+# --- FUNCIÓN PARA PRONÓSTICO SIMPLE (Mora 30-150, ¡SOLUCIÓN AL ERROR!) ---
+def simple_c2_forecast(df):
+    """Realiza un pronóstico simple de regresión lineal para la próxima tasa C2 (30-150)."""
+    
+    # La Tasa C2 (30-150) es la columna 5: [Mes, Saldo, Ops, Tasa 30-150 C1, Tasa 8-90 C1, Tasa 30-150 C2]
+    target_column_index = 5 
+    
+    if len(df.columns) <= target_column_index:
+        return np.nan
+        
+    df_forecast = df.iloc[:, [0, target_column_index]].copy()
+    df_forecast.columns = ['Mes de Apertura', 'Tasa_C2']
+    
+    df_forecast = df_forecast.dropna(subset=['Tasa_C2'])
+    
+    if len(df_forecast) < 2:
+        return np.nan
+        
+    df_forecast['X_Time'] = np.arange(len(df_forecast))
+    
+    X = df_forecast['X_Time'].values.reshape(-1, 1)
+    Y = df_forecast['Tasa_C2'].values
+    
+    next_time_point = len(df_forecast) 
+    
+    model = LinearRegression()
+    model.fit(X, Y)
+    
+    forecast_value = model.predict([[next_time_point]])
+    
+    return max(0, forecast_value[0])
+
+# --- FUNCIÓN PARA PRONÓSTICO SIMPLE (Mora 8-90, utilizada para SOLIDAR) ---
 def simple_c2_forecast_890(df):
     """Realiza un pronóstico simple de regresión lineal para la próxima tasa C2 (8-90)."""
     
-    # La Tasa C2 (8-90) es la columna 6: [Mes, Saldo, Ops, Tasa 30-150 C1, Tasa 8-90 C1, Tasa 30-150 C2, Tasa 8-90 C2]
-    # En el output de calculate_saldo_consolidado, las tasas 8-90 siempre están dos columnas después de las 30-150 correspondientes.
-    # Si C1 (30-150) es columna 3, C1 (8-90) es 4, C2 (30-150) es 5, C2 (8-90) es 6.
+    # La Tasa C2 (8-90) es la columna 6: [..., Tasa 30-150 C2, Tasa 8-90 C2]
     target_column_index = 6
     
     if len(df.columns) <= target_column_index:
@@ -295,11 +402,12 @@ def simple_c2_forecast_890(df):
 def plot_c2_forecast(df_consolidado, forecast_value, uen_name, target_metric):
     """
     Genera la gráfica de tendencia de Mora C2 incluyendo el punto pronosticado.
-    target_metric debe ser '30-150' (col 4) o '8-90' (col 6)
+    target_metric debe ser '30-150' (col 5) o '8-90' (col 6)
     """
     
-    col_index_map = {'30-150': 4, '8-90': 6} # Columna 4 para C2 (30-150), Columna 6 para C2 (8-90)
-    target_column_index = col_index_map.get(target_metric, 4)
+    # El mapeo de columnas es 1 más alto debido a la estructura de calculate_saldo_consolidado
+    col_index_map = {'30-150': 5, '8-90': 6} 
+    target_column_index = col_index_map.get(target_metric, 5)
     
     if len(df_consolidado.columns) <= target_column_index:
         return st.warning(f"Datos insuficientes para la gráfica de pronóstico {target_metric} C2.")
@@ -399,6 +507,7 @@ with tab1:
         unique_cohort_dates = df_master['Mes_BperturB'].dropna().unique()
         sorted_cohort_dates = pd.Series(pd.to_datetime(unique_cohort_dates)).sort_values(ascending=False)
         last_24_cohorts = sorted_cohort_dates.iloc[:24]
+        # df_filtered_master: Solo filtrado por las últimas 24 cohortes
         df_filtered_master = df_master[df_master['Mes_BperturB'].isin(last_24_cohorts)].copy()
         
         if not last_24_cohorts.empty:
@@ -432,6 +541,7 @@ with tab1:
         st.warning("Por favor, selecciona al menos una opción en todos los filtros del panel lateral.")
         st.stop()
 
+    # df_filtered: Aplicación de TODOS los filtros, se usa para tab1 y tab2
     df_filtered = df_filtered_master[
         (df_filtered_master['uen'].isin(selected_uens)) &
         (df_filtered_master['PR_Origen_Limpio'].isin(selected_origen)) &
@@ -767,7 +877,8 @@ with tab3:
         
         df_pr_ranking = df_pr_full[df_pr_full['Sucursal'] != EXCLUSION_BRANCH].copy()
         df_pr_consolidado = calculate_saldo_consolidado(df_filtered_master[df_filtered_master['uen'] == uen_pr])
-        forecast_pr = simple_c2_forecast(df_pr_consolidado) # Usa la Mora 30-150 para PR
+        # ¡CORREGIDO!: Llama a la función simple_c2_forecast reincorporada
+        forecast_pr = simple_c2_forecast(df_pr_consolidado) 
         
         if df_pr_ranking.empty:
             st.info(f"No hay sucursales válidas para la UEN '{uen_pr}' después de la exclusión.")
@@ -801,7 +912,6 @@ with tab3:
             plot_c2_forecast(df_pr_consolidado, forecast_pr, uen_pr, target_metric='30-150')
             
             
-            
             # --- TOP 10 Y BOTTOM 10 PARA PR ---
             
             col_top, col_bottom = st.columns(2)
@@ -815,6 +925,7 @@ with tab3:
                 df_top10_pr['% Mora C2'] = df_top10_pr['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
                 df_top10_pr['Capital_C2'] = df_top10_pr['Capital_C2'].apply(lambda x: f'${x:,.0f}')
                 
+                # Ajuste de Columnas para Top 10
                 df_top10_pr_display = df_top10_pr[['Sucursal', '% Mora C2', 'Capital_C2']].copy()
                 
                 st.dataframe(df_top10_pr_display.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
@@ -822,11 +933,14 @@ with tab3:
             with col_bottom:
                 st.markdown(f"**Bottom 10 Sucursales (Menor Mora C2)** (Excluyendo `{EXCLUSION_BRANCH}`)")
 
+                # Bottom 10: Ordenamos al revés y tomamos los primeros 10 (o simplemente tomamos los últimos 10 de la tabla descendente)
                 df_bottom10_pr = df_pr_ranking.tail(10).sort_values('% Mora C2', ascending=True).copy()
                 
+                # Formateo de tabla para mostrar
                 df_bottom10_pr['% Mora C2'] = df_bottom10_pr['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
                 df_bottom10_pr['Capital_C2'] = df_bottom10_pr['Capital_C2'].apply(lambda x: f'${x:,.0f}')
                 
+                # Ajuste de Columnas para Bottom 10
                 df_bottom10_pr_display = df_bottom10_pr[['Sucursal', '% Mora C2', 'Capital_C2']].copy()
                 
                 st.dataframe(df_bottom10_pr_display.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
@@ -879,9 +993,7 @@ with tab3:
 
         # Gráfica de Tendencia con Pronóstico
         st.markdown("#### Tendencia Histórica y Pronóstico")
-        # Usar '8-90' para la gráfica
         plot_c2_forecast(df_solidar_consolidado, forecast_solidar, uen_solidar, target_metric='8-90')
-        
         
         
         # --- TOP 10 Y BOTTOM 10 PARA SOLIDAR ---

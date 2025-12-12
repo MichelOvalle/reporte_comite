@@ -244,14 +244,11 @@ def style_table(df_display, df_raw_rates):
     styler = df_display.style
     
     # 1. Aplicar el gradiente (usando el DataFrame de tasas *sin* formatear)
-    # Clonamos df_raw_rates y le añadimos las columnas no-tasa para que tenga la misma estructura
     df_temp_for_gradient = df_raw_rates.iloc[:, 3:].copy() # Solo tasas
 
-    # Usamos df_temp_for_gradient para aplicar el gradiente fila por fila
     styler = styler.apply(
         apply_gradient_by_row, 
         axis=1, 
-        # Aplicar solo a las columnas de tasas (las primeras 3 columnas son Mes, Saldo, Ops)
         subset=df_display.columns[3:]
     )
     
@@ -287,21 +284,25 @@ def style_table(df_display, df_raw_rates):
     return styler
 
 
-# --- FUNCIÓN DE CÁLCULO ESPECÍFICO PARA C2 POR SUCURSAL (Mantenida) ---
+# --- FUNCIÓN DE CÁLCULO ESPECÍFICO PARA C2 POR SUCURSAL ---
 def calculate_sucursal_c2_mora(df, uen_name):
     """Calcula la mora C2 para la UEN y consolida por sucursal."""
     
+    # 1. Filtrar por UEN
     df_uen = df[df['uen'] == uen_name].copy()
     
     if df_uen.empty:
         return pd.DataFrame()
 
+    # 2. Agrupar por sucursal
+    # Usamos c2 para el cálculo: capital_c2 y saldo_capital_total_30150_c2
     df_summary = df_uen.groupby('nombre_sucursal').agg(
         Capital_C2=('capital_c2', 'sum'),
         Mora_30150_C2=('saldo_capital_total_c2', 'sum'),
         Operaciones=('operaciones', 'sum')
     ).reset_index()
 
+    # 3. Calcular la Tasa de Mora C2
     df_summary['% Mora C2'] = np.where(
         df_summary['Capital_C2'] != 0,
         (df_summary['Mora_30150_C2'] / df_summary['Capital_C2']) * 100,
@@ -310,11 +311,12 @@ def calculate_sucursal_c2_mora(df, uen_name):
     
     df_summary.rename(columns={'nombre_sucursal': 'Sucursal'}, inplace=True)
     
+    # Filtrar sucursales donde el volumen (Capital C2) es cero, ya que no son relevantes para el análisis de mora
     df_summary = df_summary[df_summary['Capital_C2'] > 0].sort_values('% Mora C2', ascending=False)
     
     return df_summary[['Sucursal', '% Mora C2', 'Capital_C2', 'Operaciones']]
 
-# --- FUNCIÓN PARA PRONÓSTICO SIMPLE (Regresión Lineal) (Mantenida) ---
+# --- FUNCIÓN PARA PRONÓSTICO SIMPLE (Regresión Lineal) ---
 def simple_c2_forecast(df):
     """Realiza un pronóstico simple de regresión lineal para la próxima tasa C2."""
     
@@ -333,8 +335,9 @@ def simple_c2_forecast(df):
         
     df_forecast['X_Time'] = np.arange(len(df_forecast))
     
-    X = df_forecast['X_Time'].values[:-1].reshape(-1, 1)
-    Y = df_forecast['Tasa_C2'].values[:-1]
+    # Predecir el siguiente punto
+    X = df_forecast['X_Time'].values.reshape(-1, 1)
+    Y = df_forecast['Tasa_C2'].values
     
     next_time_point = len(df_forecast) 
     
@@ -394,6 +397,7 @@ with tab1:
         unique_cohort_dates = df_master['Mes_BperturB'].dropna().unique()
         sorted_cohort_dates = pd.Series(pd.to_datetime(unique_cohort_dates)).sort_values(ascending=False)
         last_24_cohorts = sorted_cohort_dates.iloc[:24]
+        # df_filtered_master: Solo filtrado por las últimas 24 cohortes
         df_filtered_master = df_master[df_master['Mes_BperturB'].isin(last_24_cohorts)].copy()
         
         if not last_24_cohorts.empty:
@@ -426,6 +430,7 @@ with tab1:
         st.warning("Por favor, selecciona al menos una opción en todos los filtros del panel lateral.")
         st.stop()
 
+    # df_filtered: Aplicación de TODOS los filtros, se usa para tab1 y tab2
     df_filtered = df_filtered_master[
         (df_filtered_master['uen'].isin(selected_uens)) &
         (df_filtered_master['PR_Origen_Limpio'].isin(selected_origen)) &
@@ -469,7 +474,6 @@ with tab1:
             
             tasa_cols_30150 = [col for col in df_display_30150.columns if col not in ['Mes de Apertura', 'Saldo Capital Total (Monto)', 'Total Operaciones', 'Fecha Cohorte DATETIME']]
 
-            # Copia del RAW data para el cálculo de resumen (antes de introducir strings o NaN/cero)
             rate_cols_raw_values = df_display_raw_30150.iloc[:, 3:].copy()
             rate_cols_raw_values.columns = tasa_cols_30150
             
@@ -483,8 +487,8 @@ with tab1:
                     except: continue
 
                     if col_date < cohort_date: 
-                        df_display_30150.loc[index, col] = '' # Celdas fuera del triángulo se dejan vacías
-                        rate_cols_raw_values.loc[index, col] = np.nan # Usamos NaN para el cálculo del MÍNIMO/PROMEDIO
+                        df_display_30150.loc[index, col] = '' 
+                        rate_cols_raw_values.loc[index, col] = np.nan 
                     else:
                         df_display_30150.loc[index, col] = format_percent(row[col])
 
@@ -510,15 +514,13 @@ with tab1:
             min_row.iloc[1] = format_currency(saldo_col_raw.min())
             min_row.iloc[2] = format_int(ops_col_raw.min())
             
-            # Tasas (Usando rate_cols_raw_values con NaN para ignorar celdas vacías)
+            # Tasas
             for i, col_name in enumerate(tasa_cols_30150):
                 rate_values = rate_cols_raw_values.iloc[:, i].dropna()
                 
                 avg_row.iloc[i + 3] = format_percent(rate_values.mean()) if not rate_values.empty else 'N/A'
                 max_row.iloc[i + 3] = format_percent(rate_values.max()) if not rate_values.empty else 'N/A'
                 
-                # CORRECCIÓN CLAVE: El mínimo debe ser > 0 para evitar el 0.00% de celdas no-maduras
-                # Solo tomamos el mínimo si existen valores > 0
                 valid_min = rate_values[rate_values > 0].min()
                 min_row.iloc[i + 3] = format_percent(valid_min) if pd.notna(valid_min) else '0.00%'
             
@@ -598,7 +600,6 @@ with tab1:
                 avg_row.iloc[i + 3] = format_percent(rate_values.mean()) if not rate_values.empty else 'N/A'
                 max_row.iloc[i + 3] = format_percent(rate_values.max()) if not rate_values.empty else 'N/A'
                 
-                # CORRECCIÓN CLAVE: MÍNIMO > 0
                 valid_min = rate_values[rate_values > 0].min()
                 min_row.iloc[i + 3] = format_percent(valid_min) if pd.notna(valid_min) else '0.00%'
 
@@ -740,15 +741,17 @@ with tab2:
 with tab3:
     # --- CONTENIDO DE LA TÁCTICA 3: ANÁLISIS POR SUCURSAL ---
     st.header("🎯 Análisis de Riesgo por Sucursal (Mora C2)")
-    st.write("Esta sección presenta el ranking de sucursales basado en la Tasa de Mora 30-150 en el punto Vintage $C_2$ (Mora al mes 2) para las UENs 'PR' y 'Solidar'.")
+    # Se ajusta la descripción para reflejar que no usa filtros laterales
+    st.write("Esta sección presenta el ranking de sucursales basado en la Tasa de Mora 30-150 en el punto Vintage $C_2$ (Mora al mes 2) para las UENs 'PR' y 'Solidar'. **Los cálculos aquí presentados NO dependen de los filtros laterales**, utilizando solo las últimas 24 cohortes disponibles.")
 
-    if df_filtered.empty:
-        st.info("No hay datos filtrados disponibles. Por favor, asegúrese de que los filtros laterales estén aplicados en la pestaña 'Análisis Vintage'.")
+    if df_filtered_master.empty:
+        st.error("No se pudo obtener el DataFrame de las últimas 24 cohortes (`df_filtered_master`). Verifique la carga de datos.")
         st.stop()
         
     # Definir las UENs a analizar
     uen_pr = 'PR'
     uen_solidar = 'Solidar'
+    EXCLUSION_BRANCH = "999.EMPRESA NOMINA COLABORADORES" # Sucursal a excluir para PR
     
     # 1. Título y Filtro de UENs
     st.markdown("## 1. Top Sucursales por Riesgo (Mora C2)")
@@ -756,50 +759,60 @@ with tab3:
     # --- Cálculos y Presentación para UEN PR ---
     st.subheader(f"1.1. UEN: {uen_pr}")
     
-    df_pr = calculate_sucursal_c2_mora(df_filtered, uen_pr)
+    # **Usa df_filtered_master**
+    df_pr_full = calculate_sucursal_c2_mora(df_filtered_master, uen_pr)
     
-    if not df_pr.empty:
+    if not df_pr_full.empty:
         
-        # Pronóstico para UEN PR (Usando la data consolidada de PR)
-        df_pr_consolidado = calculate_saldo_consolidado(df_filtered[df_filtered['uen'] == uen_pr])
+        # **Exclusión para Max/Min/Top10**
+        df_pr_ranking = df_pr_full[df_pr_full['Sucursal'] != EXCLUSION_BRANCH].copy()
+        
+        # Pronóstico para UEN PR (**Usa df_filtered_master**)
+        df_pr_consolidado = calculate_saldo_consolidado(df_filtered_master[df_filtered_master['uen'] == uen_pr])
         forecast_pr = simple_c2_forecast(df_pr_consolidado)
         
-        col1, col2, col_forecast = st.columns(3)
-        
-        # Máximo
-        max_pr = df_pr.iloc[0]
-        col1.metric(
-            label=f"Mayor % Mora C2", 
-            value=f"{max_pr['% Mora C2']:,.2f}%", 
-            help=f"Sucursal: {max_pr['Sucursal']}. Capital C2: ${max_pr['Capital_C2']:,.0f}"
-        )
-        
-        # Mínimo
-        min_pr = df_pr.iloc[-1]
-        col2.metric(
-            label=f"Menor % Mora C2", 
-            value=f"{min_pr['% Mora C2']:,.2f}%",
-            help=f"Sucursal: {min_pr['Sucursal']}. Capital C2: ${min_pr['Capital_C2']:,.0f}"
-        )
-        
-        # Pronóstico
-        col_forecast.metric(
-            label=f"Pronóstico C2 Próx. Cohorte",
-            value=f"{forecast_pr:,.2f}%" if pd.notna(forecast_pr) else "N/A"
-        )
-        
-        st.markdown(f"**Top 10 Sucursales con Mayor Mora C2**")
-        df_top10_pr = df_pr.head(10).copy()
-        
-        # Formateo de tabla para mostrar
-        df_top10_pr['% Mora C2'] = df_top10_pr['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
-        df_top10_pr['Capital_C2'] = df_top10_pr['Capital_C2'].apply(lambda x: f'${x:,.0f}')
-        df_top10_pr['Operaciones'] = df_top10_pr['Operaciones'].apply(lambda x: f'{x:,.0f}')
-        
-        st.dataframe(df_top10_pr.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
+        if df_pr_ranking.empty:
+            st.info(f"No hay sucursales válidas para la UEN '{uen_pr}' después de la exclusión.")
+        else:
+            col1, col2, col_forecast = st.columns(3)
+            
+            # Máximo
+            max_pr = df_pr_ranking.iloc[0] 
+            col1.metric(
+                label=f"Mayor % Mora C2", 
+                value=f"{max_pr['% Mora C2']:,.2f}%", 
+                help=f"Sucursal: {max_pr['Sucursal']}. Capital C2: ${max_pr['Capital_C2']:,.0f}. (Excluye {EXCLUSION_BRANCH})"
+            )
+            
+            # Mínimo
+            min_pr = df_pr_ranking.iloc[-1] 
+            col2.metric(
+                label=f"Menor % Mora C2", 
+                value=f"{min_pr['% Mora C2']:,.2f}%",
+                help=f"Sucursal: {min_pr['Sucursal']}. Capital C2: ${min_pr['Capital_C2']:,.0f}. (Excluye {EXCLUSION_BRANCH})"
+            )
+            
+            # Pronóstico
+            col_forecast.metric(
+                label=f"Pronóstico C2 Próx. Cohorte",
+                value=f"{forecast_pr:,.2f}%" if pd.notna(forecast_pr) else "N/A"
+            )
+            
+            st.markdown(f"**Top 10 Sucursales con Mayor Mora C2** (Excluyendo `{EXCLUSION_BRANCH}`)")
+            
+            df_top10_pr = df_pr_ranking.head(10).copy()
+            
+            # Formateo de tabla para mostrar
+            df_top10_pr['% Mora C2'] = df_top10_pr['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
+            df_top10_pr['Capital_C2'] = df_top10_pr['Capital_C2'].apply(lambda x: f'${x:,.0f}')
+            
+            # **Ajuste de Columnas para Top 10**
+            df_top10_pr_display = df_top10_pr[['Sucursal', '% Mora C2', 'Capital_C2']].copy()
+            
+            st.dataframe(df_top10_pr_display.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
         
     else:
-        st.info(f"No hay datos de Mora C2 disponibles para la UEN '{uen_pr}' con los filtros actuales.")
+        st.info(f"No hay datos de Mora C2 disponibles para la UEN '{uen_pr}' en las últimas 24 cohortes.")
 
 
     st.markdown("---")
@@ -808,18 +821,19 @@ with tab3:
     # --- Cálculos y Presentación para UEN Solidar ---
     st.subheader(f"1.2. UEN: {uen_solidar}")
     
-    df_solidar = calculate_sucursal_c2_mora(df_filtered, uen_solidar)
+    # **Usa df_filtered_master**
+    df_solidar_full = calculate_sucursal_c2_mora(df_filtered_master, uen_solidar)
     
-    if not df_solidar.empty:
+    if not df_solidar_full.empty:
         
-        # Pronóstico para UEN Solidar (Usando la data consolidada de Solidar)
-        df_solidar_consolidado = calculate_saldo_consolidado(df_filtered[df_filtered['uen'] == uen_solidar])
+        # Pronóstico para UEN Solidar (**Usa df_filtered_master**)
+        df_solidar_consolidado = calculate_saldo_consolidado(df_filtered_master[df_filtered_master['uen'] == uen_solidar])
         forecast_solidar = simple_c2_forecast(df_solidar_consolidado)
 
         col3, col4, col_forecast_solidar = st.columns(3)
         
         # Máximo
-        max_solidar = df_solidar.iloc[0]
+        max_solidar = df_solidar_full.iloc[0]
         col3.metric(
             label=f"Mayor % Mora C2", 
             value=f"{max_solidar['% Mora C2']:,.2f}%", 
@@ -827,7 +841,7 @@ with tab3:
         )
         
         # Mínimo
-        min_solidar = df_solidar.iloc[-1]
+        min_solidar = df_solidar_full.iloc[-1]
         col4.metric(
             label=f"Menor % Mora C2", 
             value=f"{min_solidar['% Mora C2']:,.2f}%",
@@ -842,14 +856,16 @@ with tab3:
 
 
         st.markdown(f"**Top 10 Sucursales con Mayor Mora C2**")
-        df_top10_solidar = df_solidar.head(10).copy()
+        df_top10_solidar = df_solidar_full.head(10).copy()
         
         # Formateo de tabla para mostrar
         df_top10_solidar['% Mora C2'] = df_top10_solidar['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
         df_top10_solidar['Capital_C2'] = df_top10_solidar['Capital_C2'].apply(lambda x: f'${x:,.0f}')
-        df_top10_solidar['Operaciones'] = df_top10_solidar['Operaciones'].apply(lambda x: f'{x:,.0f}')
 
-        st.dataframe(df_top10_solidar.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
+        # **Ajuste de Columnas para Top 10**
+        df_top10_solidar_display = df_top10_solidar[['Sucursal', '% Mora C2', 'Capital_C2']].copy()
+
+        st.dataframe(df_top10_solidar_display.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
 
     else:
-        st.info(f"No hay datos de Mora C2 disponibles para la UEN '{uen_solidar}' con los filtros actuales.")
+        st.info(f"No hay datos de Mora C2 disponibles para la UEN '{uen_solidar}' en las últimas 24 cohortes.")

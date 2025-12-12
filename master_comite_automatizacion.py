@@ -18,7 +18,7 @@ def load_and_transform_data(file_path):
     try:
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
         
-        # --- LIMPIEZA CLAVE DE COLUMNAS CATEGÓRICAS AL INICIO ---
+        # --- LIMPIZA CLAVE DE COLUMNAS CATEGÓRICAS AL INICIO ---
         if 'uen' in df_master.columns:
             df_master['uen'] = df_master['uen'].astype(str).str.strip().str.upper()
         if 'nombre_sucursal' in df_master.columns:
@@ -541,7 +541,8 @@ with tab1:
     # df_filtered: Aplicación de TODOS los filtros, se usa para tab1 y tab2
     df_filtered = df_filtered_master[
         (df_filtered_master['uen'].isin(selected_uens)) &
-        (df_filtered_master['PR_Origen_Limpio'].isin(selected_origenes)) &
+        # CORRECCIÓN DE VARIABLE: Cambiado de 'selected_origenes' a 'selected_origen'
+        (df_filtered_master['PR_Origen_Limpio'].isin(selected_origen)) &
         (df_filtered_master['nombre_sucursal'].isin(selected_sucursales)) 
     ].copy()
 
@@ -774,7 +775,7 @@ with tab2:
 
         chart1 = alt.Chart(df_long_melt).mark_line(point=True).encode(
             x=alt.X('Antigüedad (Meses)', type='quantitative', title='Antigüedad de la Cohorte (Meses)', 
-                    scale=alt.Scale(domain=[11, 0]), # <--- Eje X invertido (11 a 0)
+                    scale=alt.Scale(domain=[11, 0]), 
                     axis=alt.Axis(tickMinStep=1)),
             y=alt.Y('Tasa (%)', type='quantitative', title='Tasa de Mora (%)', 
                     scale=alt.Scale(zero=True), 

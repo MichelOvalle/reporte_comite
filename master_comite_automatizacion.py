@@ -11,12 +11,18 @@ FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_auto
 SHEET_MASTER = 'master_comite_automatizacion'
 SHEET_EJERCICIO = 'ejercicio'
 
-# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA ---
+# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (AÑADIDA LIMPIEZA) ---
 @st.cache_data
 def load_and_transform_data(file_path):
     """Carga los datos y aplica las transformaciones necesarias, incluyendo la nueva columna 'nombre_sucursal'."""
     try:
         df_master = pd.read_excel(file_path, sheet_name=SHEET_MASTER)
+        
+        # --- LIMPIEZA CLAVE DE COLUMNAS CATEGÓRICAS AL INICIO ---
+        if 'uen' in df_master.columns:
+            df_master['uen'] = df_master['uen'].astype(str).str.strip().str.upper()
+        if 'nombre_sucursal' in df_master.columns:
+            df_master['nombre_sucursal'] = df_master['nombre_sucursal'].astype(str).str.strip()
         
         buckets_mora_30_150 = ["031-060", "061-090", "091-120", "121-150"]
         buckets_mora_08_90 = ["008-030", "031-060", "061-090"]
@@ -44,6 +50,8 @@ def load_and_transform_data(file_path):
         df_master['Mora_08-90'] = np.where(df_master['bucket'].isin(buckets_mora_08_90), 'Sí', 'No')
 
         digital_origenes = ["Promotor Digital", "Chatbot"]
+        # Aseguramos que 'origen' también se procese si es necesario
+        df_master['origen'] = df_master['origen'].astype(str).str.strip() 
         df_master['PR_Origen_Limpio'] = np.where(df_master['origen'].isin(digital_origenes), "Digital", "Físico")
 
         def get_month_diff(date1, date2):
@@ -125,9 +133,6 @@ def load_and_transform_data(file_path):
                 df_master['saldo_capital_total'], 
                 0
             )
-            
-        # Limpieza de la nueva columna (por si acaso)
-        df_master['nombre_sucursal'] = df_master['nombre_sucursal'].astype(str).str.strip().replace('nan', np.nan)
         
         return df_master
 
@@ -463,7 +468,9 @@ with tab1:
 
     # 1. Filtro por UEN
     uen_options = df_filtered_master['uen'].unique()
-    selected_uens = st.sidebar.multiselect("Selecciona UEN", uen_options, default=['PR', 'Solidar'] if 'PR' in uen_options and 'Solidar' in uen_options else uen_options[:min(2, len(uen_options))])
+    # **AJUSTE DE DEFAULT:** Usar mayúsculas
+    default_uens = ['PR', 'SOLIDAR'] if 'PR' in uen_options and 'SOLIDAR' in uen_options else uen_options[:min(2, len(uen_options))]
+    selected_uens = st.sidebar.multiselect("Selecciona UEN", uen_options, default=default_uens)
 
     # 2. Filtro por Origen Limpio
     origen_options = df_filtered_master['PR_Origen_Limpio'].unique()
@@ -789,15 +796,15 @@ with tab2:
 with tab3:
     # --- CONTENIDO DE LA TÁCTICA 3: ANÁLISIS POR SUCURSAL ---
     st.header("🎯 Análisis de Riesgo por Sucursal (Mora C2)")
-    st.write("Esta sección presenta el ranking de sucursales basado en la Tasa de Mora 30-150 en el punto Vintage $C_2$ (Mora al mes 2) para las UENs 'PR' y 'Solidar'. **Los cálculos aquí presentados NO dependen de los filtros laterales**, utilizando solo las últimas 24 cohortes disponibles.")
+    st.write("Esta sección presenta el ranking de sucursales basado en la Tasa de Mora 30-150 en el punto Vintage $C_2$ (Mora al mes 2) para las UENs 'PR' y 'SOLIDAR'. **Los cálculos aquí presentados NO dependen de los filtros laterales**, utilizando solo las últimas 24 cohortes disponibles.")
 
     if df_filtered_master.empty:
         st.error("No se pudo obtener el DataFrame de las últimas 24 cohortes (`df_filtered_master`). Verifique la carga de datos.")
         st.stop()
         
-    # Definir las UENs a analizar
+    # Definir las UENs a analizar (Ajustado a MAYÚSCULAS)
     uen_pr = 'PR'
-    uen_solidar = 'Solidar'
+    uen_solidar = 'SOLIDAR'
     EXCLUSION_BRANCH = "999.EMPRESA NOMINA COLABORADORES" 
     
     st.markdown("## 1. Ranking de Sucursales por Riesgo (Mora C2)")
@@ -890,7 +897,7 @@ with tab3:
 
 
     # --- Cálculos y Presentación para UEN Solidar (Nivel Sucursal) ---
-    st.subheader(f"1.2. UEN: {uen_solidar}")
+    st.subheader(f"1.2. UEN: {uen_solidar}") # Ajustado el subtítulo
     
     df_solidar_full = calculate_sucursal_c2_mora(df_filtered_master, uen_solidar) # Agrupado por Sucursal
     

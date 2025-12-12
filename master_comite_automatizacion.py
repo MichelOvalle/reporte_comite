@@ -11,7 +11,7 @@ FILE_PATH = r'C:\Users\Gerente Credito\Desktop\reporte_comite\master_comite_auto
 SHEET_MASTER = 'master_comite_automatizacion'
 SHEET_EJERCICIO = 'ejercicio'
 
-# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (AÑADIDA LIMPIZA) ---
+# --- 1. FUNCIÓN DE CARGA Y TRANSFORMACIÓN COMPLETA (AÑADIDA LIMPIEZA) ---
 @st.cache_data
 def load_and_transform_data(file_path):
     """Carga los datos y aplica las transformaciones necesarias, incluyendo la nueva columna 'nombre_sucursal'."""
@@ -269,7 +269,7 @@ def style_table(df_display, df_raw_rates):
         
         if is_avg or is_max or is_min:
             color = '#F0F0F0' if is_max or is_min else '#E6F3FF'
-            return [f'font-weight: bold; background-color: {color};'] * len(row) 
+            return ['f'font-weight: bold; background-color: {color};'] * len(row) 
         return [''] * len(row)
 
     styler = styler.apply(highlight_summary_rows, axis=1)
@@ -334,11 +334,10 @@ def calculate_sucursal_c2_mora_890(df, uen_name):
     return df_summary[['Sucursal', '% Mora C2', 'Capital_C2', 'Operaciones', 'Métrica']]
 
 
-# --- FUNCIÓN PARA PRONÓSTICO SIMPLE (Mora 30-150, ¡SOLUCIÓN AL ERROR!) ---
+# --- FUNCIÓN PARA PRONÓSTICO SIMPLE (Mora 30-150, usada para PR) ---
 def simple_c2_forecast(df):
     """Realiza un pronóstico simple de regresión lineal para la próxima tasa C2 (30-150)."""
     
-    # La Tasa C2 (30-150) es la columna 5: [Mes, Saldo, Ops, Tasa 30-150 C1, Tasa 8-90 C1, Tasa 30-150 C2]
     target_column_index = 5 
     
     if len(df.columns) <= target_column_index:
@@ -370,7 +369,6 @@ def simple_c2_forecast(df):
 def simple_c2_forecast_890(df):
     """Realiza un pronóstico simple de regresión lineal para la próxima tasa C2 (8-90)."""
     
-    # La Tasa C2 (8-90) es la columna 6: [..., Tasa 30-150 C2, Tasa 8-90 C2]
     target_column_index = 6
     
     if len(df.columns) <= target_column_index:
@@ -405,7 +403,6 @@ def plot_c2_forecast(df_consolidado, forecast_value, uen_name, target_metric):
     target_metric debe ser '30-150' (col 5) o '8-90' (col 6)
     """
     
-    # El mapeo de columnas es 1 más alto debido a la estructura de calculate_saldo_consolidado
     col_index_map = {'30-150': 5, '8-90': 6} 
     target_column_index = col_index_map.get(target_metric, 5)
     
@@ -777,7 +774,7 @@ with tab2:
 
         chart1 = alt.Chart(df_long_melt).mark_line(point=True).encode(
             x=alt.X('Antigüedad (Meses)', type='quantitative', title='Antigüedad de la Cohorte (Meses)', 
-                    scale=alt.Scale(domainMin=0), 
+                    scale=alt.Scale(domain=[11, 0]), # <--- CAMBIO CLAVE: Invertir eje X hasta 11
                     axis=alt.Axis(tickMinStep=1)),
             y=alt.Y('Tasa (%)', type='quantitative', title='Tasa de Mora (%)', 
                     scale=alt.Scale(zero=True), 
@@ -877,7 +874,6 @@ with tab3:
         
         df_pr_ranking = df_pr_full[df_pr_full['Sucursal'] != EXCLUSION_BRANCH].copy()
         df_pr_consolidado = calculate_saldo_consolidado(df_filtered_master[df_filtered_master['uen'] == uen_pr])
-        # ¡CORREGIDO!: Llama a la función simple_c2_forecast reincorporada
         forecast_pr = simple_c2_forecast(df_pr_consolidado) 
         
         if df_pr_ranking.empty:

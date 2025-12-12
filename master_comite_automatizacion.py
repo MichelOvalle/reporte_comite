@@ -298,6 +298,7 @@ def calculate_sucursal_c2_mora(df, uen_name):
     
     df_summary.rename(columns={'nombre_sucursal': 'Sucursal'}, inplace=True)
     
+    # Filtrar sucursales donde el volumen (Capital C2) es cero, ya que no son relevantes para el análisis de mora
     df_summary = df_summary[df_summary['Capital_C2'] > 0].sort_values('% Mora C2', ascending=False)
     
     return df_summary[['Sucursal', '% Mora C2', 'Capital_C2', 'Operaciones']]
@@ -333,11 +334,10 @@ def simple_c2_forecast(df):
     
     return max(0, forecast_value[0])
 
-# --- NUEVA FUNCIÓN DE GRÁFICA DE PRONÓSTICO ---
+# --- NUEVA FUNCIÓN DE GRÁFICA DE PRONÓSTICO (Mantenida) ---
 def plot_c2_forecast(df_consolidado, forecast_value, uen_name):
     """
     Genera la gráfica de tendencia de Mora C2 incluyendo el punto pronosticado.
-    df_consolidado es el DataFrame de salida de calculate_saldo_consolidado.
     """
     target_column_index = 4
     
@@ -800,7 +800,7 @@ with tab3:
     uen_solidar = 'Solidar'
     EXCLUSION_BRANCH = "999.EMPRESA NOMINA COLABORADORES" 
     
-    st.markdown("## 1. Top Sucursales por Riesgo (Mora C2)")
+    st.markdown("## 1. Ranking de Sucursales por Riesgo (Mora C2)")
     
     # --- Cálculos y Presentación para UEN PR ---
     st.subheader(f"1.1. UEN: {uen_pr}")
@@ -809,7 +809,7 @@ with tab3:
     
     if not df_pr_full.empty:
         
-        # Exclusión para Max/Min/Top10
+        # Exclusión para Max/Min/Top10/Bottom10
         df_pr_ranking = df_pr_full[df_pr_full['Sucursal'] != EXCLUSION_BRANCH].copy()
         
         # Pronóstico para UEN PR
@@ -848,19 +848,40 @@ with tab3:
             plot_c2_forecast(df_pr_consolidado, forecast_pr, uen_pr)
             
             
-            st.markdown(f"**Top 10 Sucursales con Mayor Mora C2** (Excluyendo `{EXCLUSION_BRANCH}`)")
+            # --- TOP 10 Y BOTTOM 10 PARA PR ---
             
-            df_top10_pr = df_pr_ranking.head(10).copy()
+            col_top, col_bottom = st.columns(2)
             
-            # Formateo de tabla para mostrar
-            df_top10_pr['% Mora C2'] = df_top10_pr['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
-            df_top10_pr['Capital_C2'] = df_top10_pr['Capital_C2'].apply(lambda x: f'${x:,.0f}')
-            
-            # Ajuste de Columnas para Top 10
-            df_top10_pr_display = df_top10_pr[['Sucursal', '% Mora C2', 'Capital_C2']].copy()
-            
-            st.dataframe(df_top10_pr_display.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
-        
+            with col_top:
+                st.markdown(f"**Top 10 Sucursales (Mayor Mora C2)** (Excluyendo `{EXCLUSION_BRANCH}`)")
+                
+                df_top10_pr = df_pr_ranking.head(10).copy()
+                
+                # Formateo de tabla para mostrar
+                df_top10_pr['% Mora C2'] = df_top10_pr['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
+                df_top10_pr['Capital_C2'] = df_top10_pr['Capital_C2'].apply(lambda x: f'${x:,.0f}')
+                
+                # Ajuste de Columnas para Top 10
+                df_top10_pr_display = df_top10_pr[['Sucursal', '% Mora C2', 'Capital_C2']].copy()
+                
+                st.dataframe(df_top10_pr_display.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
+
+            with col_bottom:
+                st.markdown(f"**Bottom 10 Sucursales (Menor Mora C2)** (Excluyendo `{EXCLUSION_BRANCH}`)")
+
+                # Bottom 10: Ordenamos al revés y tomamos los primeros 10 (o simplemente tomamos los últimos 10 de la tabla descendente)
+                df_bottom10_pr = df_pr_ranking.tail(10).sort_values('% Mora C2', ascending=True).copy()
+                
+                # Formateo de tabla para mostrar
+                df_bottom10_pr['% Mora C2'] = df_bottom10_pr['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
+                df_bottom10_pr['Capital_C2'] = df_bottom10_pr['Capital_C2'].apply(lambda x: f'${x:,.0f}')
+                
+                # Ajuste de Columnas para Bottom 10
+                df_bottom10_pr_display = df_bottom10_pr[['Sucursal', '% Mora C2', 'Capital_C2']].copy()
+                
+                st.dataframe(df_bottom10_pr_display.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
+
+
     else:
         st.info(f"No hay datos de Mora C2 disponibles para la UEN '{uen_pr}' en las últimas 24 cohortes.")
 
@@ -902,24 +923,44 @@ with tab3:
             label=f"Pronóstico C2 Próx. Cohorte",
             value=f"{forecast_solidar:,.2f}%" if pd.notna(forecast_solidar) else "N/A"
         )
-        
+
         # Gráfica de Tendencia con Pronóstico
         st.markdown("#### Tendencia Histórica y Pronóstico")
         plot_c2_forecast(df_solidar_consolidado, forecast_solidar, uen_solidar)
         
-
-
-        st.markdown(f"**Top 10 Sucursales con Mayor Mora C2**")
-        df_top10_solidar = df_solidar_full.head(10).copy()
         
-        # Formateo de tabla para mostrar
-        df_top10_solidar['% Mora C2'] = df_top10_solidar['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
-        df_top10_solidar['Capital_C2'] = df_top10_solidar['Capital_C2'].apply(lambda x: f'${x:,.0f}')
+        # --- TOP 10 Y BOTTOM 10 PARA SOLIDAR ---
+        
+        col_top_solidar, col_bottom_solidar = st.columns(2)
+        
+        with col_top_solidar:
+            st.markdown(f"**Top 10 Sucursales (Mayor Mora C2)**")
+            df_top10_solidar = df_solidar_full.head(10).copy()
+            
+            # Formateo de tabla para mostrar
+            df_top10_solidar['% Mora C2'] = df_top10_solidar['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
+            df_top10_solidar['Capital_C2'] = df_top10_solidar['Capital_C2'].apply(lambda x: f'${x:,.0f}')
 
-        # Ajuste de Columnas para Top 10
-        df_top10_solidar_display = df_top10_solidar[['Sucursal', '% Mora C2', 'Capital_C2']].copy()
+            # Ajuste de Columnas para Top 10
+            df_top10_solidar_display = df_top10_solidar[['Sucursal', '% Mora C2', 'Capital_C2']].copy()
 
-        st.dataframe(df_top10_solidar_display.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
+            st.dataframe(df_top10_solidar_display.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
+
+        with col_bottom_solidar:
+            st.markdown(f"**Bottom 10 Sucursales (Menor Mora C2)**")
+            
+            # Bottom 10: Ordenamos al revés y tomamos los primeros 10 (o simplemente tomamos los últimos 10 de la tabla descendente)
+            df_bottom10_solidar = df_solidar_full.tail(10).sort_values('% Mora C2', ascending=True).copy()
+
+            # Formateo de tabla para mostrar
+            df_bottom10_solidar['% Mora C2'] = df_bottom10_solidar['% Mora C2'].apply(lambda x: f'{x:,.2f}%')
+            df_bottom10_solidar['Capital_C2'] = df_bottom10_solidar['Capital_C2'].apply(lambda x: f'${x:,.0f}')
+
+            # Ajuste de Columnas para Bottom 10
+            df_bottom10_solidar_display = df_bottom10_solidar[['Sucursal', '% Mora C2', 'Capital_C2']].copy()
+
+            st.dataframe(df_bottom10_solidar_display.rename(columns={'Capital_C2': 'Capital C2 ($)'}), hide_index=True)
+
 
     else:
         st.info(f"No hay datos de Mora C2 disponibles para la UEN '{uen_solidar}' en las últimas 24 cohortes.")
